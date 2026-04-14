@@ -297,32 +297,37 @@ function drawCornerEdge(ctx) {
 export function renderRoom(ctx, w, h, t) {
   if (!initialized) return;
 
-  // Fixe interne Koordinaten setzen
+  // Fixe interne Koordinaten
   setViewport(w, h);
 
-  // Hintergrund (vor dem Scale, volle Canvas-Größe)
+  // Hintergrund
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#FFF8F0';
   ctx.fillRect(0, 0, w, h);
 
-  // Virtuelle Raum-Bounds (im internen Koordinatensystem)
-  const virtualW = 375;
-  const virtualH = oy + GRID * TH + 10; // Wand-Top bis Boden-Bottom + Padding
+  // Raum-Bounding-Box im internen Koordinatensystem:
+  //   Links:  ox - GRID*TW/2 = 187-156 = 31
+  //   Rechts: ox + GRID*TW/2 = 187+156 = 343
+  //   Oben:   oy - WALL_H    = 76-66   = 10
+  //   Unten:  oy + GRID*TH   = 76+156  = 232
+  const roomW = GRID * TW;       // 312
+  const roomH = GRID * TH + WALL_H; // 222
+  const roomCX = ox;              // 187 (Raum-Mitte X)
+  const roomCY = oy - WALL_H + roomH / 2; // 121 (Raum-Mitte Y)
 
-  // Skalierung: Raum füllt ~85% der Breite, max ~55% der Höhe
-  const scaleX = (w * 0.85) / virtualW;
-  const scaleY = (h * 0.55) / virtualH;
-  const scale = Math.min(scaleX, scaleY);
+  // Skalieren: Raum passt in Viewport mit 20px Padding
+  const pad = 20;
+  const scale = Math.min((w - pad * 2) / roomW, (h - pad * 2) / roomH);
 
-  // Zentrieren, leicht nach oben
-  const offsetX = (w - virtualW * scale) / 2;
-  const offsetY = (h - virtualH * scale) * 0.32;
+  // Raum horizontal zentrieren, vertikal leicht über Mitte (38%)
+  const vpCX = w / 2;
+  const vpCY = h * 0.38;
 
   ctx.save();
-  ctx.translate(offsetX, offsetY);
+  ctx.translate(vpCX, vpCY);
   ctx.scale(scale, scale);
+  ctx.translate(-roomCX, -roomCY);
 
-  // Ab hier alles im internen 375px-Koordinatensystem
   drawRightWall(ctx);
   drawLeftWall(ctx);
   drawCornerEdge(ctx);
