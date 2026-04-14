@@ -301,4 +301,10 @@ export function renderRoom(ctx, w, h, t) {
       ctx.restore();
     }
   }
+
+  // DEBUG – nach dem Testen entfernen
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`canvas: ${Math.round(w)}×${Math.round(h)}  oy=${oy}  mitte=${Math.round(h/2)}`, 8, h - 8);
 }
