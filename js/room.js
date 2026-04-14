@@ -1,5 +1,5 @@
-// js/room.js – Iso-Renderer mit Kamera (Zoom + Pan)
-// Keine Imports aus anderen Game-Modulen.
+// js/room.js – Iso-Renderer, simpel, ohne Skalierung
+// Raum wird 1:1 in nativer Pixelgröße gerendert.
 
 // ---- Iso-Konstanten ----
 export const TW = 52;
@@ -7,9 +7,9 @@ export const TH = 26;
 export const GRID = 6;
 export const WALL_H = 66;
 
-// Fixes internes Koordinatensystem
-const ox = 187;
-const oy = 76;  // WALL_H + 10
+// Dynamischer Iso-Ursprung (wird pro Frame in renderRoom gesetzt)
+let ox = 187;
+let oy = 120;
 
 export function tileToScreen(tx, ty) {
   return {
@@ -25,156 +25,6 @@ export function screenToTile(sx, sy) {
     tx: Math.floor(u / TW + v / TH),
     ty: Math.floor(-u / TW + v / TH),
   };
-}
-
-// Raum-Bounding-Box (intern)
-const ROOM_W = GRID * TW;              // 312
-const ROOM_H = GRID * TH + WALL_H;     // 222
-const ROOM_CX = ox;                     // 187
-const ROOM_CY = oy - WALL_H + ROOM_H / 2; // 121
-
-// ---- Kamera ----
-const cam = {
-  zoom: 1,
-  panX: 0,    // Screen-Pixel Offset
-  panY: 0,
-  minZoom: 0.6,
-  maxZoom: 3.0,
-};
-
-/**
- * Zoom berechnen, der den Raum passend in w×h einpasst.
- */
-function fitZoom(w, h) {
-  const pad = 30;
-  return Math.min((w - pad * 2) / ROOM_W, (h - pad * 2) / ROOM_H);
-}
-
-/**
- * Kamera auf Raum-Mitte zurücksetzen, Zoom an Viewport anpassen.
- */
-export function resetCamera(w, h) {
-  cam.zoom = fitZoom(w, h);
-  cam.panX = 0;
-  cam.panY = 0;
-}
-
-// ---- Touch/Mouse Controls ----
-
-let _canvasEl = null;
-let _viewW = 375;
-let _viewH = 600;
-
-// Touch-State
-let touches = [];
-let lastPinchDist = 0;
-let isPanning = false;
-let lastPanX = 0;
-let lastPanY = 0;
-let lastTapTime = 0;
-
-/**
- * Canvas-Events für Pan + Zoom anbinden.
- * Aus main.js einmal aufrufen.
- */
-export function initRoomControls(canvas) {
-  _canvasEl = canvas;
-
-  // --- Touch ---
-  canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-  canvas.addEventListener('touchmove', onTouchMove, { passive: false });
-  canvas.addEventListener('touchend', onTouchEnd, { passive: false });
-
-  // --- Mouse (Desktop) ---
-  canvas.addEventListener('wheel', onWheel, { passive: false });
-  canvas.addEventListener('mousedown', onMouseDown);
-  canvas.addEventListener('mousemove', onMouseMove);
-  canvas.addEventListener('mouseup', onMouseUp);
-  canvas.addEventListener('mouseleave', onMouseUp);
-  canvas.addEventListener('dblclick', onDblClick);
-}
-
-function onTouchStart(e) {
-  e.preventDefault();
-  touches = Array.from(e.touches);
-
-  if (touches.length === 1) {
-    // Doppel-Tap erkennen
-    const now = Date.now();
-    if (now - lastTapTime < 300) {
-      resetCamera(_viewW, _viewH);
-      lastTapTime = 0;
-      return;
-    }
-    lastTapTime = now;
-
-    isPanning = true;
-    lastPanX = touches[0].clientX;
-    lastPanY = touches[0].clientY;
-  } else if (touches.length === 2) {
-    isPanning = false;
-    lastPinchDist = pinchDist(touches);
-  }
-}
-
-function onTouchMove(e) {
-  e.preventDefault();
-  const t = Array.from(e.touches);
-
-  if (t.length === 1 && isPanning) {
-    cam.panX += t[0].clientX - lastPanX;
-    cam.panY += t[0].clientY - lastPanY;
-    lastPanX = t[0].clientX;
-    lastPanY = t[0].clientY;
-  } else if (t.length === 2) {
-    const d = pinchDist(t);
-    if (lastPinchDist > 0) {
-      const ratio = d / lastPinchDist;
-      cam.zoom = clampZoom(cam.zoom * ratio);
-    }
-    lastPinchDist = d;
-  }
-}
-
-function onTouchEnd(e) {
-  touches = Array.from(e.touches);
-  if (touches.length < 2) lastPinchDist = 0;
-  if (touches.length === 0) isPanning = false;
-}
-
-function onWheel(e) {
-  e.preventDefault();
-  const factor = e.deltaY > 0 ? 0.9 : 1.1;
-  cam.zoom = clampZoom(cam.zoom * factor);
-}
-
-let mouseDown = false;
-function onMouseDown(e) {
-  mouseDown = true;
-  lastPanX = e.clientX;
-  lastPanY = e.clientY;
-}
-function onMouseMove(e) {
-  if (!mouseDown) return;
-  cam.panX += e.clientX - lastPanX;
-  cam.panY += e.clientY - lastPanY;
-  lastPanX = e.clientX;
-  lastPanY = e.clientY;
-}
-function onMouseUp() { mouseDown = false; }
-
-function onDblClick() {
-  resetCamera(_viewW, _viewH);
-}
-
-function pinchDist(t) {
-  const dx = t[0].clientX - t[1].clientX;
-  const dy = t[0].clientY - t[1].clientY;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function clampZoom(z) {
-  return Math.max(cam.minZoom, Math.min(cam.maxZoom, z));
 }
 
 // ---- Farben ----
@@ -422,25 +272,21 @@ function drawCornerEdge(ctx) {
 export function renderRoom(ctx, w, h, t) {
   if (!initialized) return;
 
-  _viewW = w;
-  _viewH = h;
-
-  // Beim allerersten Frame: Kamera passend setzen
-  if (cam.zoom === 1 && cam.panX === 0 && cam.panY === 0) {
-    resetCamera(w, h);
-  }
+  // Iso-Ursprung dynamisch: horizontal zentriert, vertikal passend
+  ox = Math.floor(w / 2);
+  // Raum-Mitte (relativ zu oy) liegt bei oy + (GRID*TH - WALL_H)/2 = oy + 45
+  // Diese Mitte soll bei 40% der Canvas-Höhe liegen
+  oy = Math.floor(h * 0.40 - 45);
+  // Sicherheits-Clamp: Wand oben nicht über Canvas, Boden nicht darunter
+  oy = Math.max(WALL_H + 2, oy);
+  oy = Math.min(h - GRID * TH - 2, oy);
 
   // Hintergrund
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#FFF8F0';
   ctx.fillRect(0, 0, w, h);
 
-  // Kamera-Transform: Raum-Mitte → Viewport-Mitte + Pan, dann Zoom
-  ctx.save();
-  ctx.translate(w / 2 + cam.panX, h * 0.40 + cam.panY);
-  ctx.scale(cam.zoom, cam.zoom);
-  ctx.translate(-ROOM_CX, -ROOM_CY);
-
+  // Wände, Boden, Figuren
   drawRightWall(ctx);
   drawLeftWall(ctx);
   drawCornerEdge(ctx);
@@ -455,6 +301,4 @@ export function renderRoom(ctx, w, h, t) {
       ctx.restore();
     }
   }
-
-  ctx.restore();
 }

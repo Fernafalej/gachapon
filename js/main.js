@@ -2,7 +2,7 @@
 import { initState, getState, mutate, resetState, saveState } from './state.js';
 import { initUI, switchScreen, setOnScreenChange, updateResourceBar, showConfirm } from './ui.js';
 import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount } from './characters.js';
-import { initRoom, updateRoom, renderRoom, initRoomControls, resetCamera } from './room.js';
+import { initRoom, updateRoom, renderRoom } from './room.js';
 
 // ---- App Start ----
 const state = initState();
@@ -31,15 +31,7 @@ function resizeCanvas() {
 }
 
 resizeCanvas();
-window.addEventListener('resize', () => {
-  resizeCanvas();
-  const w = canvas.width / (window.devicePixelRatio || 1);
-  const h = canvas.height / (window.devicePixelRatio || 1);
-  resetCamera(w, h);
-});
-
-// Kamera-Controls (Pan + Zoom) anbinden
-initRoomControls(canvas);
+window.addEventListener('resize', resizeCanvas);
 
 // ---- Iso-Renderer initialisieren ----
 
@@ -51,18 +43,17 @@ function setupRoom() {
   if (collected.length > 0) {
     chars = collected.map(id => getCharacter(id)).filter(Boolean);
   } else {
-    // Demo-Figuren bis Gacha (Schritt 7) implementiert ist
     chars = getAllCharacters().slice(0, Math.min(5, getAllCharacters().length));
   }
 
   initRoom(chars, drawCharacter);
-  console.log(`🏠 Raum initialisiert mit ${chars.length} Figuren`);
+  console.log('🏠 Raum initialisiert mit ' + chars.length + ' Figuren');
 }
 
 try {
   setupRoom();
 } catch (e) {
-  console.error('❌ Fehler bei Raum-Init:', e);
+  console.error('Fehler bei Raum-Init:', e);
 }
 
 // ---- Render-Loop ----
@@ -72,21 +63,8 @@ function render(timestamp) {
   const w = canvas.width / (window.devicePixelRatio || 1);
   const h = canvas.height / (window.devicePixelRatio || 1);
 
-  try {
-    updateRoom(t);
-    renderRoom(ctx, w, h, t);
-  } catch (e) {
-    console.error('❌ Render-Fehler:', e);
-    // Fallback: Fehlermeldung auf Canvas
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#FFF8F0';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#E88';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Render-Fehler – siehe Konsole', w / 2, h / 2);
-    return; // Loop stoppen bei Fehler
-  }
+  updateRoom(t);
+  renderRoom(ctx, w, h, t);
 
   animationId = requestAnimationFrame(render);
 }
@@ -216,9 +194,6 @@ document.getElementById('btn-reset').addEventListener('click', () => {
     saveState(getState());
     updateResourceBar();
     setupRoom();
-    const rw = canvas.width / (window.devicePixelRatio || 1);
-    const rh = canvas.height / (window.devicePixelRatio || 1);
-    resetCamera(rw, rh);
     switchScreen('house');
   });
 });
