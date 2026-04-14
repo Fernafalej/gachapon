@@ -838,3 +838,8 @@ html, body {
   background: #E88;
   color: white;
 }
+
+#screen-house {
+  height: calc(100dvh - var(--header-height) - var(--nav-height));
+  overflow: hidden;
+}
