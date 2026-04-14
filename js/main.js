@@ -2,7 +2,7 @@
 import { initState, getState, mutate, resetState, saveState } from './state.js';
 import { initUI, switchScreen, setOnScreenChange, updateResourceBar, showConfirm } from './ui.js';
 import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount } from './characters.js';
-import { initRoom, updateRoom, renderRoom } from './room.js';
+import { initRoom, updateRoom, renderRoom, initRoomControls, resetCamera } from './room.js';
 
 // ---- App Start ----
 const state = initState();
@@ -31,7 +31,15 @@ function resizeCanvas() {
 }
 
 resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  const w = canvas.width / (window.devicePixelRatio || 1);
+  const h = canvas.height / (window.devicePixelRatio || 1);
+  resetCamera(w, h);
+});
+
+// Kamera-Controls (Pan + Zoom) anbinden
+initRoomControls(canvas);
 
 // ---- Iso-Renderer initialisieren ----
 
@@ -208,6 +216,9 @@ document.getElementById('btn-reset').addEventListener('click', () => {
     saveState(getState());
     updateResourceBar();
     setupRoom();
+    const rw = canvas.width / (window.devicePixelRatio || 1);
+    const rh = canvas.height / (window.devicePixelRatio || 1);
+    resetCamera(rw, rh);
     switchScreen('house');
   });
 });

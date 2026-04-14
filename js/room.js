@@ -1,5 +1,5 @@
-// js/room.js – Iso-Renderer, Wände, Boden, Figuren-Sprites
-// Keine Imports aus anderen Game-Modulen – alles wird per initRoom() injiziert.
+// js/room.js – Iso-Renderer mit Kamera (Zoom + Pan)
+// Keine Imports aus anderen Game-Modulen.
 
 // ---- Iso-Konstanten ----
 export const TW = 52;
@@ -7,16 +7,9 @@ export const TH = 26;
 export const GRID = 6;
 export const WALL_H = 66;
 
-const BASE_OX = 187;
-const BASE_OY = 74;
-let ox = BASE_OX;
-let oy = BASE_OY;
-
-export function setViewport(w, h) {
-  // Internes Koordinatensystem: immer 375px-Basis
-  ox = Math.floor(375 / 2);
-  oy = WALL_H + 10; // Wand-Oberkante bei y=10
-}
+// Fixes internes Koordinatensystem
+const ox = 187;
+const oy = 76;  // WALL_H + 10
 
 export function tileToScreen(tx, ty) {
   return {
@@ -32,6 +25,156 @@ export function screenToTile(sx, sy) {
     tx: Math.floor(u / TW + v / TH),
     ty: Math.floor(-u / TW + v / TH),
   };
+}
+
+// Raum-Bounding-Box (intern)
+const ROOM_W = GRID * TW;              // 312
+const ROOM_H = GRID * TH + WALL_H;     // 222
+const ROOM_CX = ox;                     // 187
+const ROOM_CY = oy - WALL_H + ROOM_H / 2; // 121
+
+// ---- Kamera ----
+const cam = {
+  zoom: 1,
+  panX: 0,    // Screen-Pixel Offset
+  panY: 0,
+  minZoom: 0.6,
+  maxZoom: 3.0,
+};
+
+/**
+ * Zoom berechnen, der den Raum passend in w×h einpasst.
+ */
+function fitZoom(w, h) {
+  const pad = 30;
+  return Math.min((w - pad * 2) / ROOM_W, (h - pad * 2) / ROOM_H);
+}
+
+/**
+ * Kamera auf Raum-Mitte zurücksetzen, Zoom an Viewport anpassen.
+ */
+export function resetCamera(w, h) {
+  cam.zoom = fitZoom(w, h);
+  cam.panX = 0;
+  cam.panY = 0;
+}
+
+// ---- Touch/Mouse Controls ----
+
+let _canvasEl = null;
+let _viewW = 375;
+let _viewH = 600;
+
+// Touch-State
+let touches = [];
+let lastPinchDist = 0;
+let isPanning = false;
+let lastPanX = 0;
+let lastPanY = 0;
+let lastTapTime = 0;
+
+/**
+ * Canvas-Events für Pan + Zoom anbinden.
+ * Aus main.js einmal aufrufen.
+ */
+export function initRoomControls(canvas) {
+  _canvasEl = canvas;
+
+  // --- Touch ---
+  canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+  canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+
+  // --- Mouse (Desktop) ---
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+  canvas.addEventListener('mousedown', onMouseDown);
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mouseup', onMouseUp);
+  canvas.addEventListener('mouseleave', onMouseUp);
+  canvas.addEventListener('dblclick', onDblClick);
+}
+
+function onTouchStart(e) {
+  e.preventDefault();
+  touches = Array.from(e.touches);
+
+  if (touches.length === 1) {
+    // Doppel-Tap erkennen
+    const now = Date.now();
+    if (now - lastTapTime < 300) {
+      resetCamera(_viewW, _viewH);
+      lastTapTime = 0;
+      return;
+    }
+    lastTapTime = now;
+
+    isPanning = true;
+    lastPanX = touches[0].clientX;
+    lastPanY = touches[0].clientY;
+  } else if (touches.length === 2) {
+    isPanning = false;
+    lastPinchDist = pinchDist(touches);
+  }
+}
+
+function onTouchMove(e) {
+  e.preventDefault();
+  const t = Array.from(e.touches);
+
+  if (t.length === 1 && isPanning) {
+    cam.panX += t[0].clientX - lastPanX;
+    cam.panY += t[0].clientY - lastPanY;
+    lastPanX = t[0].clientX;
+    lastPanY = t[0].clientY;
+  } else if (t.length === 2) {
+    const d = pinchDist(t);
+    if (lastPinchDist > 0) {
+      const ratio = d / lastPinchDist;
+      cam.zoom = clampZoom(cam.zoom * ratio);
+    }
+    lastPinchDist = d;
+  }
+}
+
+function onTouchEnd(e) {
+  touches = Array.from(e.touches);
+  if (touches.length < 2) lastPinchDist = 0;
+  if (touches.length === 0) isPanning = false;
+}
+
+function onWheel(e) {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  cam.zoom = clampZoom(cam.zoom * factor);
+}
+
+let mouseDown = false;
+function onMouseDown(e) {
+  mouseDown = true;
+  lastPanX = e.clientX;
+  lastPanY = e.clientY;
+}
+function onMouseMove(e) {
+  if (!mouseDown) return;
+  cam.panX += e.clientX - lastPanX;
+  cam.panY += e.clientY - lastPanY;
+  lastPanX = e.clientX;
+  lastPanY = e.clientY;
+}
+function onMouseUp() { mouseDown = false; }
+
+function onDblClick() {
+  resetCamera(_viewW, _viewH);
+}
+
+function pinchDist(t) {
+  const dx = t[0].clientX - t[1].clientX;
+  const dy = t[0].clientY - t[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function clampZoom(z) {
+  return Math.max(cam.minZoom, Math.min(cam.maxZoom, z));
 }
 
 // ---- Farben ----
@@ -52,10 +195,6 @@ let drawCharFn = null;
 const sprites = [];
 let initialized = false;
 
-/**
- * @param {Array} chars  – Character-Definitionen
- * @param {Function} drawFn – drawCharacter(ctx, char, pose, x, y, t, dir)
- */
 export function initRoom(chars, drawFn) {
   sprites.length = 0;
   drawCharFn = drawFn || null;
@@ -65,29 +204,18 @@ export function initRoom(chars, drawFn) {
     return;
   }
 
-  // Vordefinierte gute Startpositionen, gleichmäßig über das Grid verteilt
-  const startPositions = [
-    { px: 1.5, py: 3.5 },
-    { px: 3.0, py: 2.0 },
-    { px: 4.5, py: 4.0 },
-    { px: 2.0, py: 1.5 },
-    { px: 4.0, py: 1.5 },
-    { px: 1.5, py: 5.0 },
-    { px: 3.5, py: 5.0 },
-    { px: 5.0, py: 3.0 },
-    { px: 2.5, py: 3.0 },
+  const startPos = [
+    { px: 1.5, py: 3.5 }, { px: 3.0, py: 2.0 }, { px: 4.5, py: 4.0 },
+    { px: 2.0, py: 1.5 }, { px: 4.0, py: 1.5 }, { px: 1.5, py: 5.0 },
+    { px: 3.5, py: 5.0 }, { px: 5.0, py: 3.0 }, { px: 2.5, py: 3.0 },
   ];
 
   chars.forEach((char, i) => {
-    const pos = startPositions[i % startPositions.length];
+    const pos = startPos[i % startPos.length];
     sprites.push({
-      char,
-      px: pos.px,
-      py: pos.py,
-      targetPx: 0,
-      targetPy: 0,
-      pose: 'idle',
-      dir: 0,
+      char, px: pos.px, py: pos.py,
+      targetPx: 0, targetPy: 0,
+      pose: 'idle', dir: 0,
       idleTimer: 1.5 + Math.random() * 2.5,
       moveSpeed: 0.8 + Math.random() * 0.5,
     });
@@ -236,7 +364,6 @@ function drawWindow(ctx, wall, s, e, glass) {
   const y1b = p1.y - wb, y2b = p2.y - wb;
   const y1t = p1.y - wt, y2t = p2.y - wt;
 
-  // Glas
   ctx.save();
   ctx.globalAlpha = 0.5;
   ctx.fillStyle = glass;
@@ -249,7 +376,6 @@ function drawWindow(ctx, wall, s, e, glass) {
   ctx.fill();
   ctx.restore();
 
-  // Glanz
   ctx.save();
   ctx.globalAlpha = 0.25;
   ctx.fillStyle = '#FFFFFF';
@@ -263,7 +389,6 @@ function drawWindow(ctx, wall, s, e, glass) {
   ctx.fill();
   ctx.restore();
 
-  // Rahmen + Sprossen
   ctx.strokeStyle = WIN_FRAME;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -297,36 +422,24 @@ function drawCornerEdge(ctx) {
 export function renderRoom(ctx, w, h, t) {
   if (!initialized) return;
 
-  // Fixe interne Koordinaten
-  setViewport(w, h);
+  _viewW = w;
+  _viewH = h;
+
+  // Beim allerersten Frame: Kamera passend setzen
+  if (cam.zoom === 1 && cam.panX === 0 && cam.panY === 0) {
+    resetCamera(w, h);
+  }
 
   // Hintergrund
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#FFF8F0';
   ctx.fillRect(0, 0, w, h);
 
-  // Raum-Bounding-Box im internen Koordinatensystem:
-  //   Links:  ox - GRID*TW/2 = 187-156 = 31
-  //   Rechts: ox + GRID*TW/2 = 187+156 = 343
-  //   Oben:   oy - WALL_H    = 76-66   = 10
-  //   Unten:  oy + GRID*TH   = 76+156  = 232
-  const roomW = GRID * TW;       // 312
-  const roomH = GRID * TH + WALL_H; // 222
-  const roomCX = ox;              // 187 (Raum-Mitte X)
-  const roomCY = oy - WALL_H + roomH / 2; // 121 (Raum-Mitte Y)
-
-  // Skalieren: Raum passt in Viewport mit 20px Padding
-  const pad = 20;
-  const scale = Math.min((w - pad * 2) / roomW, (h - pad * 2) / roomH);
-
-  // Raum horizontal zentrieren, vertikal leicht über Mitte (38%)
-  const vpCX = w / 2;
-  const vpCY = h * 0.38;
-
+  // Kamera-Transform: Raum-Mitte → Viewport-Mitte + Pan, dann Zoom
   ctx.save();
-  ctx.translate(vpCX, vpCY);
-  ctx.scale(scale, scale);
-  ctx.translate(-roomCX, -roomCY);
+  ctx.translate(w / 2 + cam.panX, h * 0.40 + cam.panY);
+  ctx.scale(cam.zoom, cam.zoom);
+  ctx.translate(-ROOM_CX, -ROOM_CY);
 
   drawRightWall(ctx);
   drawLeftWall(ctx);
