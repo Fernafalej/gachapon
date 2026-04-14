@@ -274,9 +274,9 @@ export function renderRoom(ctx, w, h, t) {
 
   // Iso-Ursprung dynamisch: horizontal zentriert, vertikal passend
   ox = Math.floor(w / 2);
-  // Raum-Mitte (relativ zu oy) liegt bei oy + (GRID*TH - WALL_H)/2 = oy + 45
-  // Diese Mitte soll bei 40% der Canvas-Höhe liegen
-  oy = Math.floor(h * 0.40 - 45);
+  // Raum-Mitte (relativ zu oy) liegt bei oy + 45
+  // Diese Mitte soll bei der Hälfte der Canvas-Höhe liegen
+  oy = Math.floor(h / 2 - 45);
   // Sicherheits-Clamp: Wand oben nicht über Canvas, Boden nicht darunter
   oy = Math.max(WALL_H + 2, oy);
   oy = Math.min(h - GRID * TH - 2, oy);
