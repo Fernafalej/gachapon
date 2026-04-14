@@ -1,4 +1,4 @@
-// js/room.js – Iso-Renderer, simpel, ohne Skalierung
+// js/room.js – Iso-Renderer with furniture + character depth-sort
 // Raum wird 1:1 in nativer Pixelgröße gerendert.
 
 // ---- Iso-Konstanten ----
@@ -41,17 +41,36 @@ const WIN_FRAME   = '#C8B8A4';
 // ---- Externe Draw-Funktion ----
 let drawCharFn = null;
 
-// ---- Sprites ----
+// ---- Sprites + Furniture ----
 const sprites = [];
+let furnitureItems = [];
 let initialized = false;
 
-export function initRoom(chars, drawFn) {
+/**
+ * Raum initialisieren.
+ * @param {Array} chars       – Character-Definitionen
+ * @param {Function} drawFn   – drawCharacter(ctx, char, pose, x, y, t, dir)
+ * @param {Array} [furniture] – Möbel-Objekte: { tx, ty, size: {w,d}, draw(ctx,x,y), flat }
+ */
+export function initRoom(chars, drawFn, furniture) {
   sprites.length = 0;
+  furnitureItems = furniture || [];
   drawCharFn = drawFn || null;
 
   if (!chars || chars.length === 0) {
     initialized = true;
     return;
+  }
+
+  // Begehbare Tiles berechnen (Tiles die nicht von Möbeln blockiert sind)
+  const blocked = new Set();
+  for (const f of furnitureItems) {
+    if (f.flat) continue; // Teppiche blockieren nicht
+    for (let dx = 0; dx < f.size.w; dx++) {
+      for (let dy = 0; dy < f.size.d; dy++) {
+        blocked.add(`${f.tx + dx},${f.ty + dy}`);
+      }
+    }
   }
 
   const startPos = [
@@ -75,8 +94,39 @@ export function initRoom(chars, drawFn) {
 }
 
 export function getSprites() { return sprites; }
+export function getFurnitureItems() { return furnitureItems; }
 
 function clmp(v) { return Math.max(0.4, Math.min(GRID - 0.4, v)); }
+
+/**
+ * Prüft ob eine Tile-Position von Möbeln blockiert ist.
+ * Figuren meiden nicht-flache Möbel mit etwas Abstand.
+ */
+function isTileBlocked(px, py) {
+  for (const f of furnitureItems) {
+    if (f.flat) continue;
+    // Figur-Zentrum liegt innerhalb der Möbel-Footprint + kleiner Puffer
+    const pad = 0.3;
+    if (px >= f.tx - pad && px < f.tx + f.size.w + pad &&
+        py >= f.ty - pad && py < f.ty + f.size.d + pad) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Zufälligen freien Waypoint finden (max 10 Versuche)
+ */
+function randomFreeWaypoint() {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const px = clmp(0.5 + Math.random() * (GRID - 1));
+    const py = clmp(0.5 + Math.random() * (GRID - 1));
+    if (!isTileBlocked(px, py)) return { px, py };
+  }
+  // Fallback: irgendein Punkt
+  return { px: clmp(0.5 + Math.random() * (GRID - 1)), py: clmp(0.5 + Math.random() * (GRID - 1)) };
+}
 
 // ---- Update ----
 let lastT = 0;
@@ -90,8 +140,9 @@ export function updateRoom(t) {
     if (sp.pose === 'idle') {
       sp.idleTimer -= dt;
       if (sp.idleTimer <= 0) {
-        sp.targetPx = clmp(0.5 + Math.random() * (GRID - 1));
-        sp.targetPy = clmp(0.5 + Math.random() * (GRID - 1));
+        const wp = randomFreeWaypoint();
+        sp.targetPx = wp.px;
+        sp.targetPy = wp.py;
         sp.pose = 'walk';
       }
     } else if (sp.pose === 'walk') {
@@ -105,9 +156,17 @@ export function updateRoom(t) {
         sp.idleTimer = 2.5 + Math.random() * 4;
       } else {
         const step = Math.min(sp.moveSpeed * dt, dist);
-        sp.px += (dx / dist) * step;
-        sp.py += (dy / dist) * step;
-        sp.dir = (dx - dy) >= 0 ? 0 : 1;
+        const nextPx = sp.px + (dx / dist) * step;
+        const nextPy = sp.py + (dy / dist) * step;
+        // Kollisionsprüfung: Wenn nächste Position blockiert, abbrechen
+        if (isTileBlocked(nextPx, nextPy)) {
+          sp.pose = 'idle';
+          sp.idleTimer = 1.0 + Math.random() * 2;
+        } else {
+          sp.px = nextPx;
+          sp.py = nextPy;
+          sp.dir = (dx - dy) >= 0 ? 0 : 1;
+        }
       }
     }
   }
@@ -280,9 +339,8 @@ let _lastTap = 0;
 let _mouseDown = false;
 
 export function initRoomControls(canvas) {
-  canvas.style.touchAction = 'none'; // Browser-Scroll deaktivieren
+  canvas.style.touchAction = 'none';
 
-  // Touch
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     _touches = [...e.touches];
@@ -320,7 +378,6 @@ export function initRoomControls(canvas) {
     if (_touches.length === 0) _panning = false;
   }, { passive: false });
 
-  // Mouse
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     cam.zoom = _clampZ(cam.zoom * (e.deltaY > 0 ? 0.92 : 1.08));
@@ -350,39 +407,78 @@ function _clampZ(z) { return Math.max(cam.minZoom, Math.min(cam.maxZoom, z)); }
 export function renderRoom(ctx, w, h, t) {
   if (!initialized) return;
 
-  // Iso-Ursprung berechnen (Basis, ohne Kamera)
   const baseOX = Math.floor(w / 2);
   const baseOY = Math.max(WALL_H + 2, Math.min(h - GRID * TH - 2, Math.floor(h / 2 - 45)));
 
-  // Hintergrund (immer volle Canvas-Größe, vor dem Transform)
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#FFF8F0';
   ctx.fillRect(0, 0, w, h);
 
-  // Kamera-Transform: Zoom um Canvas-Mitte + Pan
   ctx.save();
   ctx.translate(w / 2 + cam.panX, h / 2 + cam.panY);
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-w / 2, -h / 2);
 
-  // Iso-Ursprung setzen (wird von allen Draw-Funktionen genutzt)
   ox = baseOX;
   oy = baseOY;
 
-  // Wände, Boden, Figuren
+  // 1. Wände
   drawRightWall(ctx);
   drawLeftWall(ctx);
   drawCornerEdge(ctx);
+
+  // 2. Boden
   drawFloor(ctx);
 
-  if (drawCharFn && sprites.length > 0) {
-    const sorted = [...sprites].sort((a, b) => (a.px + a.py) - (b.px + b.py));
-    for (const sp of sorted) {
+  // 3. Flache Möbel (Teppiche) direkt auf dem Boden
+  for (const f of furnitureItems) {
+    if (!f.flat) continue;
+    const scr = ws(f.tx + f.size.w / 2, f.ty + f.size.d / 2);
+    ctx.save();
+    f.draw(ctx, scr.x, scr.y);
+    ctx.restore();
+  }
+
+  // 4. Depth-sorted: nicht-flache Möbel + Figuren zusammen
+  const renderList = [];
+
+  for (const f of furnitureItems) {
+    if (f.flat) continue;
+    // Depth-Key: Mitte des Footprints
+    const cx = f.tx + f.size.w / 2;
+    const cy = f.ty + f.size.d / 2;
+    renderList.push({
+      type: 'furniture',
+      depth: cx + cy,
+      drawFn: f.draw,
+      screenX: ws(cx, cy).x,
+      screenY: ws(cx, cy).y,
+    });
+  }
+
+  if (drawCharFn) {
+    for (const sp of sprites) {
       const scr = ws(sp.px, sp.py);
-      ctx.save();
-      drawCharFn(ctx, sp.char, sp.pose, scr.x, scr.y, t, sp.dir);
-      ctx.restore();
+      renderList.push({
+        type: 'character',
+        depth: sp.px + sp.py,
+        sprite: sp,
+        screenX: scr.x,
+        screenY: scr.y,
+      });
     }
+  }
+
+  renderList.sort((a, b) => a.depth - b.depth);
+
+  for (const item of renderList) {
+    ctx.save();
+    if (item.type === 'furniture') {
+      item.drawFn(ctx, item.screenX, item.screenY);
+    } else {
+      drawCharFn(ctx, item.sprite.char, item.sprite.pose, item.screenX, item.screenY, t, item.sprite.dir);
+    }
+    ctx.restore();
   }
 
   ctx.restore();

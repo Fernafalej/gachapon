@@ -3,6 +3,11 @@ import { initState, getState, mutate, resetState, saveState } from './state.js';
 import { initUI, switchScreen, setOnScreenChange, updateResourceBar, showConfirm } from './ui.js';
 import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount } from './characters.js';
 import { initRoom, updateRoom, renderRoom, initRoomControls } from './room.js';
+import { allFurniture } from '../data/furniture/index.js';
+
+// Möbel-Lookup nach ID
+const furnitureMap = {};
+for (const f of allFurniture) furnitureMap[f.id] = f;
 
 // ---- App Start ----
 const state = initState();
@@ -36,6 +41,36 @@ window.addEventListener('resize', resizeCanvas);
 // Pan + Zoom Controls anbinden
 initRoomControls(canvas);
 
+// ---- Möbel für den Renderer vorbereiten ----
+
+function buildFurnitureForRoom(placements) {
+  return placements.map(p => {
+    const def = furnitureMap[p.furniture_id];
+    if (!def || !def.draw) return null;
+    return {
+      tx: p.tx,
+      ty: p.ty,
+      size: def.size || { w: 1, d: 1 },
+      draw: def.draw,
+      id: def.id,
+      flat: def.id === 'rug',
+    };
+  }).filter(Boolean);
+}
+
+// Demo-Möbel für leeren State (wird entfernt wenn Platzierungs-UI kommt)
+function getDemoFurniture() {
+  return buildFurnitureForRoom([
+    { furniture_id: 'rug',          tx: 2, ty: 2 },
+    { furniture_id: 'wooden_table', tx: 1, ty: 0 },
+    { furniture_id: 'cozy_chair',   tx: 0, ty: 2 },
+    { furniture_id: 'plant',        tx: 5, ty: 0 },
+    { furniture_id: 'bookshelf',    tx: 0, ty: 4 },
+    { furniture_id: 'lamp',         tx: 5, ty: 5 },
+    { furniture_id: 'bed',          tx: 4, ty: 0 },
+  ]);
+}
+
 // ---- Iso-Renderer initialisieren ----
 
 function setupRoom() {
@@ -49,8 +84,14 @@ function setupRoom() {
     chars = getAllCharacters().slice(0, Math.min(5, getAllCharacters().length));
   }
 
-  initRoom(chars, drawCharacter);
-  console.log('🏠 Raum initialisiert mit ' + chars.length + ' Figuren');
+  // Möbel aus State oder Demo
+  const placements = s.house.placements || [];
+  const furniture = placements.length > 0
+    ? buildFurnitureForRoom(placements)
+    : getDemoFurniture();
+
+  initRoom(chars, drawCharacter, furniture);
+  console.log('🏠 Raum initialisiert mit ' + chars.length + ' Figuren, ' + furniture.length + ' Möbel');
 }
 
 try {
