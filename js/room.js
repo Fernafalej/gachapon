@@ -13,14 +13,9 @@ let ox = BASE_OX;
 let oy = BASE_OY;
 
 export function setViewport(w, h) {
-  ox = Math.floor(w / 2);
-  // oy ist der Iso-Ursprung (Ecke wo Wände sich treffen).
-  // Wand geht WALL_H nach oben, Boden GRID*TH nach unten.
-  // Raum vertikal zentrieren, leicht nach oben versetzt.
-  const roomCenter = (GRID * TH - WALL_H) / 2; // Raum-Mitte relativ zu oy
-  oy = Math.floor(h * 0.42 - roomCenter);
-  // Sicherheit: Wand nicht über Canvas-Rand, Boden nicht darunter
-  oy = Math.max(WALL_H + 8, Math.min(h - GRID * TH - 8, oy));
+  // Internes Koordinatensystem: immer 375px-Basis
+  ox = Math.floor(375 / 2);
+  oy = WALL_H + 10; // Wand-Oberkante bei y=10
 }
 
 export function tileToScreen(tx, ty) {
@@ -302,11 +297,32 @@ function drawCornerEdge(ctx) {
 export function renderRoom(ctx, w, h, t) {
   if (!initialized) return;
 
+  // Fixe interne Koordinaten setzen
   setViewport(w, h);
+
+  // Hintergrund (vor dem Scale, volle Canvas-Größe)
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#FFF8F0';
   ctx.fillRect(0, 0, w, h);
 
+  // Virtuelle Raum-Bounds (im internen Koordinatensystem)
+  const virtualW = 375;
+  const virtualH = oy + GRID * TH + 10; // Wand-Top bis Boden-Bottom + Padding
+
+  // Skalierung: Raum füllt ~85% der Breite, max ~55% der Höhe
+  const scaleX = (w * 0.85) / virtualW;
+  const scaleY = (h * 0.55) / virtualH;
+  const scale = Math.min(scaleX, scaleY);
+
+  // Zentrieren, leicht nach oben
+  const offsetX = (w - virtualW * scale) / 2;
+  const offsetY = (h - virtualH * scale) * 0.32;
+
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(scale, scale);
+
+  // Ab hier alles im internen 375px-Koordinatensystem
   drawRightWall(ctx);
   drawLeftWall(ctx);
   drawCornerEdge(ctx);
@@ -321,4 +337,6 @@ export function renderRoom(ctx, w, h, t) {
       ctx.restore();
     }
   }
+
+  ctx.restore();
 }
