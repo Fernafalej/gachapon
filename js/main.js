@@ -34,7 +34,28 @@ resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
 // ---- Iso-Renderer initialisieren ----
-initRoom();
+
+function setupRoom() {
+  const s = getState();
+  const collected = Object.keys(s.collection);
+
+  let chars;
+  if (collected.length > 0) {
+    chars = collected.map(id => getCharacter(id)).filter(Boolean);
+  } else {
+    // Demo-Figuren bis Gacha (Schritt 7) implementiert ist
+    chars = getAllCharacters().slice(0, Math.min(5, getAllCharacters().length));
+  }
+
+  initRoom(chars, drawCharacter);
+  console.log(`🏠 Raum initialisiert mit ${chars.length} Figuren`);
+}
+
+try {
+  setupRoom();
+} catch (e) {
+  console.error('❌ Fehler bei Raum-Init:', e);
+}
 
 // ---- Render-Loop ----
 
@@ -43,16 +64,25 @@ function render(timestamp) {
   const w = canvas.width / (window.devicePixelRatio || 1);
   const h = canvas.height / (window.devicePixelRatio || 1);
 
-  // Sprite-Positionen aktualisieren
-  updateRoom(t);
-
-  // Raum zeichnen (Wände, Boden, Figuren)
-  renderRoom(ctx, w, h, t);
+  try {
+    updateRoom(t);
+    renderRoom(ctx, w, h, t);
+  } catch (e) {
+    console.error('❌ Render-Fehler:', e);
+    // Fallback: Fehlermeldung auf Canvas
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#FFF8F0';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#E88';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Render-Fehler – siehe Konsole', w / 2, h / 2);
+    return; // Loop stoppen bei Fehler
+  }
 
   animationId = requestAnimationFrame(render);
 }
 
-// Nur rendern wenn Haus-Screen aktiv
 function startRender() {
   if (!animationId) {
     animationId = requestAnimationFrame(render);
@@ -73,7 +103,6 @@ setOnScreenChange((screen) => {
   } else {
     stopRender();
   }
-  // Sammlung und Profil aktualisieren
   if (screen === 'collection') renderCollection();
   if (screen === 'profile') renderProfile();
   if (screen === 'gacha') renderGachaScreen();
@@ -97,7 +126,6 @@ function renderCollection() {
     if (!owned) card.classList.add('undiscovered');
 
     if (owned) {
-      // Kleines Canvas für Figur-Preview
       const miniCanvas = document.createElement('canvas');
       miniCanvas.width = 64;
       miniCanvas.height = 64;
@@ -150,7 +178,6 @@ function renderProfile() {
   document.getElementById('stat-unique-chars').textContent = Object.keys(s.collection).length;
   document.getElementById('stat-rooms').textContent = s.house.rooms;
 
-  // Token-History
   const list = document.getElementById('token-history-list');
   list.innerHTML = '';
   const history = s.token_history || [];
@@ -177,12 +204,10 @@ function renderProfile() {
 document.getElementById('btn-reset').addEventListener('click', () => {
   showConfirm('Willst du wirklich deinen gesamten Spielstand löschen? Das kann nicht rückgängig gemacht werden.', () => {
     const newState = resetState();
-    // State-Singleton updaten
     Object.assign(getState(), newState);
     saveState(getState());
     updateResourceBar();
-    // Raum neu initialisieren
-    initRoom();
+    setupRoom();
     switchScreen('house');
   });
 });
@@ -191,8 +216,6 @@ document.getElementById('btn-reset').addEventListener('click', () => {
 
 function applyOfflineProgress(state) {
   const now = Math.floor(Date.now() / 1000);
-  // const delta = now - state.last_seen;
-  // TODO: Schritt 8 – Offline-Progress berechnen
   state.last_seen = now;
 }
 
@@ -204,7 +227,6 @@ function checkFreeRoll(state) {
   const daysSinceLast = (now - lastRoll) / 86400;
 
   if (daysSinceLast >= 1 && !state.gacha.free_roll_available) {
-    // 3% Tägliche Chance
     if (Math.random() < 0.03) {
       state.gacha.free_roll_available = true;
     }
