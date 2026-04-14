@@ -14,13 +14,13 @@ let oy = BASE_OY;
 
 export function setViewport(w, h) {
   ox = Math.floor(w / 2);
-  // Raum vertikal zentrieren: Wand-Oberkante bis Boden-Unterkante
-  const roomTop = -WALL_H;        // relativ zu oy
-  const roomBot = GRID * TH;      // relativ zu oy
-  const roomHeight = roomBot - roomTop;
-  // Raum leicht über Mitte positionieren (45% vom oberen Rand)
-  oy = Math.floor(h * 0.45 - roomBot + roomHeight / 2);
-  oy = Math.max(WALL_H + 10, oy); // nicht über Bildschirmrand
+  // oy ist der Iso-Ursprung (Ecke wo Wände sich treffen).
+  // Wand geht WALL_H nach oben, Boden GRID*TH nach unten.
+  // Raum vertikal zentrieren, leicht nach oben versetzt.
+  const roomCenter = (GRID * TH - WALL_H) / 2; // Raum-Mitte relativ zu oy
+  oy = Math.floor(h * 0.42 - roomCenter);
+  // Sicherheit: Wand nicht über Canvas-Rand, Boden nicht darunter
+  oy = Math.max(WALL_H + 8, Math.min(h - GRID * TH - 8, oy));
 }
 
 export function tileToScreen(tx, ty) {
