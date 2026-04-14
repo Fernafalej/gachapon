@@ -2,6 +2,7 @@
 import { initState, getState, mutate, resetState, saveState } from './state.js';
 import { initUI, switchScreen, setOnScreenChange, updateResourceBar, showConfirm } from './ui.js';
 import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount } from './characters.js';
+import { initRoom, updateRoom, renderRoom } from './room.js';
 
 // ---- App Start ----
 const state = initState();
@@ -32,68 +33,29 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-// ---- Demo-Render: Alle Spezies auf dem Canvas anzeigen ----
-// (Wird in Schritt 4 durch den echten Iso-Renderer ersetzt)
+// ---- Iso-Renderer initialisieren ----
+initRoom();
 
-const demoChars = getAllCharacters();
-const startTime = performance.now() / 1000;
+// ---- Render-Loop ----
 
-function renderDemo(timestamp) {
+function render(timestamp) {
   const t = timestamp / 1000;
   const w = canvas.width / (window.devicePixelRatio || 1);
   const h = canvas.height / (window.devicePixelRatio || 1);
 
-  ctx.clearRect(0, 0, w, h);
+  // Sprite-Positionen aktualisieren
+  updateRoom(t);
 
-  // Hintergrund
-  ctx.fillStyle = '#FFF8F0';
-  ctx.fillRect(0, 0, w, h);
+  // Raum zeichnen (Wände, Boden, Figuren)
+  renderRoom(ctx, w, h, t);
 
-  // Info-Text
-  ctx.fillStyle = '#B8A898';
-  ctx.font = '12px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(`${demoChars.length} Figuren geladen – Schritt 1–3 ✓`, w / 2, 20);
-  ctx.fillText('Iso-Renderer kommt in Schritt 4', w / 2, 36);
-
-  // Figuren in 3 Reihen anzeigen
-  const cols = Math.min(5, demoChars.length);
-  const spacingX = Math.min(72, (w - 40) / cols);
-  const spacingY = 70;
-  const startX = (w - (cols - 1) * spacingX) / 2;
-  const startY = 90;
-
-  demoChars.forEach((char, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const cx = startX + col * spacingX;
-    const cy = startY + row * spacingY;
-
-    // Pose wechseln
-    const posePhase = Math.floor((t + i * 1.7) / 4) % 3;
-    const poses = ['idle', 'walk', 'idle'];
-    const pose = poses[posePhase];
-
-    ctx.save();
-    drawCharacter(ctx, char, pose, cx, cy, t + i * 0.5, 0);
-    ctx.restore();
-
-    // Name + Seltenheit
-    ctx.fillStyle = char.rarity === 'super_rare' ? '#E8B830'
-                  : char.rarity === 'rare' ? '#6B9FD4'
-                  : '#B8A898';
-    ctx.font = 'bold 9px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(char.name, cx, cy + 14);
-  });
-
-  animationId = requestAnimationFrame(renderDemo);
+  animationId = requestAnimationFrame(render);
 }
 
 // Nur rendern wenn Haus-Screen aktiv
 function startRender() {
   if (!animationId) {
-    animationId = requestAnimationFrame(renderDemo);
+    animationId = requestAnimationFrame(render);
   }
 }
 
@@ -219,6 +181,8 @@ document.getElementById('btn-reset').addEventListener('click', () => {
     Object.assign(getState(), newState);
     saveState(getState());
     updateResourceBar();
+    // Raum neu initialisieren
+    initRoom();
     switchScreen('house');
   });
 });
