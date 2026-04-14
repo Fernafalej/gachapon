@@ -84,9 +84,10 @@ export const TOKEN_TABLES = {
   ],
   sport: [
     { amount: 10, label: '10 Minuten', tokens: 1 },
-    { amount: 20, label: '20 Minuten', tokens: 2 },
-    { amount: 45, label: '45 Minuten', tokens: 3 },
-    { amount: 60, label: '60 Minuten', tokens: 4 },
+    { amount: 15, label: '15 Minuten', tokens: 2 },
+    { amount: 20, label: '20 Minuten', tokens: 3 },
+    { amount: 25, label: '25 Minuten', tokens: 4 },
+    { amount: 30, label: '30 Minuten', tokens: 5 },
   ],
   calories: [
     { amount: 250, label: '250 kcal Defizit', tokens: 1 },
