@@ -20,7 +20,10 @@ function drawBunnyBase(ctx, x, y, palette, opts = {}) {
   const legColor = adjustColor(palette.primary, -25);
   drawRoundRect(ctx, x - 5, baseY - 6, 4.5, 7, 2, legColor);
   drawRoundRect(ctx, x + 0.5, baseY - 6, 4.5, 7, 2, legColor);
-
+  
+  // Schwänzchen
+  drawCircle(ctx, x, baseY - 3, 3, palette.detail1);
+  
   // Körper
   drawRoundRect(ctx, x - 6.5, bodyY - 5, 13, 10, 5, palette.primary);
   // Bauch
@@ -41,9 +44,6 @@ function drawBunnyBase(ctx, x, y, palette, opts = {}) {
   ctx.rotate(0.15 + armROff);
   drawRoundRect(ctx, -1, 0, 3.5, 7, 1.5, armColor);
   ctx.restore();
-
-  // Schwänzchen
-  drawCircle(ctx, x, baseY - 3, 3, palette.detail1);
 
   // Kopf
   drawCircle(ctx, x, headY, HEAD_R, palette.primary);
