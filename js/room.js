@@ -267,24 +267,107 @@ function drawCornerEdge(ctx) {
   ctx.stroke();
 }
 
+// ---- Kamera (Pan + Zoom) ----
+const cam = { panX: 0, panY: 0, zoom: 1, minZoom: 0.7, maxZoom: 2.5 };
+
+// Touch-State
+let _touches = [];
+let _lastPinch = 0;
+let _panning = false;
+let _lastX = 0;
+let _lastY = 0;
+let _lastTap = 0;
+let _mouseDown = false;
+
+export function initRoomControls(canvas) {
+  canvas.style.touchAction = 'none'; // Browser-Scroll deaktivieren
+
+  // Touch
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    _touches = [...e.touches];
+    if (_touches.length === 1) {
+      const now = Date.now();
+      if (now - _lastTap < 300) { cam.panX = 0; cam.panY = 0; cam.zoom = 1; _lastTap = 0; return; }
+      _lastTap = now;
+      _panning = true;
+      _lastX = _touches[0].clientX;
+      _lastY = _touches[0].clientY;
+    } else if (_touches.length === 2) {
+      _panning = false;
+      _lastPinch = _pinchDist(_touches);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const t = [...e.touches];
+    if (t.length === 1 && _panning) {
+      cam.panX += t[0].clientX - _lastX;
+      cam.panY += t[0].clientY - _lastY;
+      _lastX = t[0].clientX;
+      _lastY = t[0].clientY;
+    } else if (t.length === 2 && _lastPinch > 0) {
+      const d = _pinchDist(t);
+      cam.zoom = _clampZ(cam.zoom * (d / _lastPinch));
+      _lastPinch = d;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    _touches = [...e.touches];
+    if (_touches.length < 2) _lastPinch = 0;
+    if (_touches.length === 0) _panning = false;
+  }, { passive: false });
+
+  // Mouse
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    cam.zoom = _clampZ(cam.zoom * (e.deltaY > 0 ? 0.92 : 1.08));
+  }, { passive: false });
+
+  canvas.addEventListener('mousedown', e => { _mouseDown = true; _lastX = e.clientX; _lastY = e.clientY; });
+  canvas.addEventListener('mousemove', e => {
+    if (!_mouseDown) return;
+    cam.panX += e.clientX - _lastX;
+    cam.panY += e.clientY - _lastY;
+    _lastX = e.clientX;
+    _lastY = e.clientY;
+  });
+  canvas.addEventListener('mouseup', () => { _mouseDown = false; });
+  canvas.addEventListener('mouseleave', () => { _mouseDown = false; });
+  canvas.addEventListener('dblclick', () => { cam.panX = 0; cam.panY = 0; cam.zoom = 1; });
+}
+
+function _pinchDist(t) {
+  const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+function _clampZ(z) { return Math.max(cam.minZoom, Math.min(cam.maxZoom, z)); }
+
 // ---- Haupt-Render ----
 
 export function renderRoom(ctx, w, h, t) {
   if (!initialized) return;
 
-  // Iso-Ursprung dynamisch: horizontal zentriert, vertikal passend
-  ox = Math.floor(w / 2);
-  // Raum-Mitte (relativ zu oy) liegt bei oy + 45
-  // Diese Mitte soll bei der Hälfte der Canvas-Höhe liegen
-  oy = Math.floor(h / 2 - 45);
-  // Sicherheits-Clamp: Wand oben nicht über Canvas, Boden nicht darunter
-  oy = Math.max(WALL_H + 2, oy);
-  oy = Math.min(h - GRID * TH - 2, oy);
+  // Iso-Ursprung berechnen (Basis, ohne Kamera)
+  const baseOX = Math.floor(w / 2);
+  const baseOY = Math.max(WALL_H + 2, Math.min(h - GRID * TH - 2, Math.floor(h / 2 - 45)));
 
-  // Hintergrund
+  // Hintergrund (immer volle Canvas-Größe, vor dem Transform)
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#FFF8F0';
   ctx.fillRect(0, 0, w, h);
+
+  // Kamera-Transform: Zoom um Canvas-Mitte + Pan
+  ctx.save();
+  ctx.translate(w / 2 + cam.panX, h / 2 + cam.panY);
+  ctx.scale(cam.zoom, cam.zoom);
+  ctx.translate(-w / 2, -h / 2);
+
+  // Iso-Ursprung setzen (wird von allen Draw-Funktionen genutzt)
+  ox = baseOX;
+  oy = baseOY;
 
   // Wände, Boden, Figuren
   drawRightWall(ctx);
@@ -302,9 +385,5 @@ export function renderRoom(ctx, w, h, t) {
     }
   }
 
-  // DEBUG – nach dem Testen entfernen
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.font = '11px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(`canvas: ${Math.round(w)}×${Math.round(h)}  oy=${oy}  mitte=${Math.round(h/2)}`, 8, h - 8);
+  ctx.restore();
 }

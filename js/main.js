@@ -2,7 +2,7 @@
 import { initState, getState, mutate, resetState, saveState } from './state.js';
 import { initUI, switchScreen, setOnScreenChange, updateResourceBar, showConfirm } from './ui.js';
 import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount } from './characters.js';
-import { initRoom, updateRoom, renderRoom } from './room.js';
+import { initRoom, updateRoom, renderRoom, initRoomControls } from './room.js';
 
 // ---- App Start ----
 const state = initState();
@@ -32,6 +32,9 @@ function resizeCanvas() {
 
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+
+// Pan + Zoom Controls anbinden
+initRoomControls(canvas);
 
 // ---- Iso-Renderer initialisieren ----
 
