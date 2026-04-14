@@ -14,8 +14,13 @@ let oy = BASE_OY;
 
 export function setViewport(w, h) {
   ox = Math.floor(w / 2);
-  const roomHeight = GRID * TH + WALL_H;
-  oy = Math.max(BASE_OY, Math.floor((h - roomHeight) * 0.38) + WALL_H);
+  // Raum vertikal zentrieren: Wand-Oberkante bis Boden-Unterkante
+  const roomTop = -WALL_H;        // relativ zu oy
+  const roomBot = GRID * TH;      // relativ zu oy
+  const roomHeight = roomBot - roomTop;
+  // Raum leicht über Mitte positionieren (45% vom oberen Rand)
+  oy = Math.floor(h * 0.45 - roomBot + roomHeight / 2);
+  oy = Math.max(WALL_H + 10, oy); // nicht über Bildschirmrand
 }
 
 export function tileToScreen(tx, ty) {
@@ -35,9 +40,9 @@ export function screenToTile(sx, sy) {
 }
 
 // ---- Farben ----
-const FLOOR_A = '#E8DDD0';
-const FLOOR_B = '#DDD2C2';
-const FLOOR_STROKE = 'rgba(0,0,0,0.04)';
+const FLOOR_A = '#DED5B8';
+const FLOOR_B = '#D2C9AC';
+const FLOOR_STROKE = 'rgba(0,0,0,0.03)';
 const WALL_RIGHT = '#F2DAC4';
 const WALL_LEFT  = '#ECDAC8';
 const WALL_EDGE  = '#D8C8B4';
@@ -65,13 +70,25 @@ export function initRoom(chars, drawFn) {
     return;
   }
 
+  // Vordefinierte gute Startpositionen, gleichmäßig über das Grid verteilt
+  const startPositions = [
+    { px: 1.5, py: 3.5 },
+    { px: 3.0, py: 2.0 },
+    { px: 4.5, py: 4.0 },
+    { px: 2.0, py: 1.5 },
+    { px: 4.0, py: 1.5 },
+    { px: 1.5, py: 5.0 },
+    { px: 3.5, py: 5.0 },
+    { px: 5.0, py: 3.0 },
+    { px: 2.5, py: 3.0 },
+  ];
+
   chars.forEach((char, i) => {
-    const angle = (i / chars.length) * Math.PI * 2 + 0.3;
-    const r = 1.2 + (i % 2) * 0.6;
+    const pos = startPositions[i % startPositions.length];
     sprites.push({
       char,
-      px: clmp(GRID / 2 + Math.cos(angle) * r),
-      py: clmp(GRID / 2 + Math.sin(angle) * r),
+      px: pos.px,
+      py: pos.py,
       targetPx: 0,
       targetPy: 0,
       pose: 'idle',
