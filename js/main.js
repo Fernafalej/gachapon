@@ -175,28 +175,43 @@ function openFurniturePlaceModal(tx, ty) {
 
   let itemsHTML = '<div class="furniture-grid">';
   for (const f of allFurniture) {
-    const canBuy = f.buy && s.resources.goods >= f.buy.cost.goods;
-    const canCraft = owned.includes(f.id) && f.craft &&
+    const fits = checkFurnitureFits(tx, ty, f.size || { w: 1, d: 1 });
+    const hasRecipe = owned.includes(f.id);
+    const canBuy = fits && f.buy && s.resources.goods >= f.buy.cost.goods;
+    const unlockCost = f.craft?.unlock_cost?.ideas || 0;
+    const canUnlock = fits && !hasRecipe && s.resources.ideas >= unlockCost;
+    const canCraft = fits && hasRecipe && f.craft &&
       s.resources.material >= (f.craft.cost.material || 0) &&
       s.resources.ideas >= (f.craft.cost.ideas || 0);
-    const fits = checkFurnitureFits(tx, ty, f.size || { w: 1, d: 1 });
 
     const buyLabel = f.buy ? `${f.buy.cost.goods} 🧁` : '–';
-    const craftLabel = owned.includes(f.id)
-      ? `${f.craft?.cost?.material || 0} 🪵 + ${f.craft?.cost?.ideas || 0} 💡`
-      : `🔒 ${f.craft?.unlock_cost?.ideas || '?'} 💡`;
+
+    // Craft button has 3 states: unlock / build / locked
+    let craftBtnClass, craftBtnText;
+    if (!hasRecipe) {
+      craftBtnClass = canUnlock ? 'furniture-unlock-btn' : 'furniture-unlock-btn btn-too-poor';
+      craftBtnText = `🔓 Rezept ${unlockCost} 💡`;
+    } else {
+      const matCost = f.craft?.cost?.material || 0;
+      const ideaCost = f.craft?.cost?.ideas || 0;
+      craftBtnClass = canCraft ? 'furniture-craft-btn' : 'furniture-craft-btn btn-too-poor';
+      craftBtnText = `🔨 Bauen ${matCost} 🪵 + ${ideaCost} 💡`;
+    }
 
     itemsHTML += `
       <div class="furniture-option ${!fits ? 'furniture-no-fit' : ''}" data-furniture-id="${f.id}">
         <canvas width="64" height="64" data-furniture-id="${f.id}"></canvas>
-        <div class="furniture-name">${f.name}</div>
-        <div class="furniture-actions">
-          <button class="furniture-buy-btn ${canBuy && fits ? '' : 'disabled'}" data-id="${f.id}" data-mode="buy">
-            Kaufen ${buyLabel}
-          </button>
-          <button class="furniture-craft-btn ${canCraft && fits ? '' : 'disabled'}" data-id="${f.id}" data-mode="craft">
-            ${owned.includes(f.id) ? 'Bauen' : 'Rezept'} ${craftLabel}
-          </button>
+        <div class="furniture-option-info">
+          <div class="furniture-name">${f.name}</div>
+          <div class="furniture-size">${f.size.w}×${f.size.d}${!fits ? ' · passt hier nicht' : ''}</div>
+          <div class="furniture-actions">
+            <button class="furniture-buy-btn ${canBuy ? '' : 'btn-too-poor'}" data-id="${f.id}" ${!fits ? 'disabled' : ''}>
+              🛒 ${buyLabel}
+            </button>
+            <button class="${craftBtnClass}" data-id="${f.id}" ${!fits ? 'disabled' : ''}>
+              ${craftBtnText}
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -205,9 +220,10 @@ function openFurniturePlaceModal(tx, ty) {
 
   openModal(`
     <div class="modal-header">
-      <span class="modal-title">Möbel platzieren (${tx},${ty})</span>
+      <span class="modal-title">Möbel platzieren</span>
       <button class="modal-close">✕</button>
     </div>
+    <div class="furniture-tile-hint">Tile (${tx}, ${ty})</div>
     ${itemsHTML}
   `);
 
@@ -223,12 +239,18 @@ function openFurniturePlaceModal(tx, ty) {
     }
   });
 
-  // Buy buttons
-  document.querySelectorAll('.furniture-buy-btn:not(.disabled)').forEach(btn => {
+  // Buy buttons – all of them, check affordability in handler
+  document.querySelectorAll('.furniture-buy-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const fId = btn.dataset.id;
       const fDef = furnitureMap[fId];
-      if (!fDef) return;
+      if (!fDef || !fDef.buy) return;
+      const cur = getState();
+      if (cur.resources.goods < fDef.buy.cost.goods) {
+        btn.classList.add('btn-shake');
+        setTimeout(() => btn.classList.remove('btn-shake'), 400);
+        return;
+      }
       mutate(s => {
         s.resources.goods -= fDef.buy.cost.goods;
         s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
@@ -241,35 +263,53 @@ function openFurniturePlaceModal(tx, ty) {
     });
   });
 
-  // Craft buttons
-  document.querySelectorAll('.furniture-craft-btn:not(.disabled)').forEach(btn => {
+  // Unlock-Recipe buttons
+  document.querySelectorAll('.furniture-unlock-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const fId = btn.dataset.id;
       const fDef = furnitureMap[fId];
       if (!fDef) return;
-      const s = getState();
-      if (!s.unlocked_recipes.includes(fId)) {
-        const cost = fDef.craft?.unlock_cost?.ideas || 0;
-        if (s.resources.ideas >= cost) {
-          mutate(s => {
-            s.resources.ideas -= cost;
-            s.unlocked_recipes.push(fId);
-          });
-          updateResourceBar();
-          openFurniturePlaceModal(tx, ty);
-        }
-      } else {
-        mutate(s => {
-          s.resources.material -= (fDef.craft.cost.material || 0);
-          s.resources.ideas -= (fDef.craft.cost.ideas || 0);
-          s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
-        });
-        closeModal();
-        placingFurnitureMode = false;
-        document.getElementById('btn-place-furniture').classList.remove('fab-active');
-        updateResourceBar();
-        setupRoom(currentRoomIndex);
+      const cost = fDef.craft?.unlock_cost?.ideas || 0;
+      const cur = getState();
+      if (cur.resources.ideas < cost) {
+        btn.classList.add('btn-shake');
+        setTimeout(() => btn.classList.remove('btn-shake'), 400);
+        return;
       }
+      mutate(s => {
+        s.resources.ideas -= cost;
+        if (!s.unlocked_recipes) s.unlocked_recipes = [];
+        s.unlocked_recipes.push(fId);
+      });
+      updateResourceBar();
+      openFurniturePlaceModal(tx, ty); // Re-render with recipe unlocked
+    });
+  });
+
+  // Craft buttons (recipe already unlocked)
+  document.querySelectorAll('.furniture-craft-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fId = btn.dataset.id;
+      const fDef = furnitureMap[fId];
+      if (!fDef || !fDef.craft) return;
+      const cur = getState();
+      const matCost = fDef.craft.cost.material || 0;
+      const ideaCost = fDef.craft.cost.ideas || 0;
+      if (cur.resources.material < matCost || cur.resources.ideas < ideaCost) {
+        btn.classList.add('btn-shake');
+        setTimeout(() => btn.classList.remove('btn-shake'), 400);
+        return;
+      }
+      mutate(s => {
+        s.resources.material -= matCost;
+        s.resources.ideas -= ideaCost;
+        s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
+      });
+      closeModal();
+      placingFurnitureMode = false;
+      document.getElementById('btn-place-furniture').classList.remove('fab-active');
+      updateResourceBar();
+      setupRoom(currentRoomIndex);
     });
   });
 }

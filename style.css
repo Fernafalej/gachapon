@@ -1476,3 +1476,304 @@ html, body {
   bottom: calc(10% + 13px);
   box-shadow: 0 2px 4px rgba(0,0,0,0.15);
 }
+
+/* ============================================
+   STEP 9: Sammlung-Screen Enhancements
+   ============================================ */
+
+/* Silhouette card canvas */
+.collection-card canvas {
+  width: 80px;
+  height: 80px;
+}
+
+.collection-card.undiscovered {
+  background: var(--bg-warm);
+  opacity: 0.7;
+  cursor: default;
+}
+
+.collection-card.undiscovered canvas {
+  opacity: 0.4;
+}
+
+/* Species Filter Row */
+#species-filters {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 12px;
+  overflow-x: auto;
+}
+
+.species-btn {
+  border: none;
+  background: var(--bg-warm);
+  color: var(--text-light);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1.3;
+}
+
+.species-btn.active {
+  background: var(--blue);
+  color: white;
+}
+
+/* Pose Selector in Detail Modal */
+.pose-selector {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 10px 0 16px;
+}
+
+.pose-btn {
+  border: none;
+  background: var(--bg);
+  color: var(--text-light);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pose-btn.active {
+  background: var(--pink);
+  color: white;
+}
+
+/* Detail canvas bigger */
+.char-detail canvas {
+  width: 160px;
+  height: 160px;
+  display: block;
+  margin: 0 auto 4px;
+}
+
+/* Shard Progress Bar */
+.detail-row-bar {
+  border-bottom: none;
+  padding-bottom: 4px;
+}
+
+.shard-bar {
+  height: 6px;
+  background: var(--bg-warm);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.shard-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--blue), var(--gold));
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* ============================================
+   STEP 10: Haus-Ausbau
+   ============================================ */
+
+/* Room Indicator Dots */
+#room-indicator {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 6;
+}
+
+.room-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--pink);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow);
+  transition: background 0.15s, transform 0.15s;
+}
+
+.room-dot.active {
+  background: var(--pink);
+  color: white;
+  transform: scale(1.15);
+}
+
+.room-dot:active {
+  transform: scale(0.92);
+}
+
+/* Secondary FAB (furniture) */
+.fab-secondary {
+  bottom: 80px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+  background: var(--blue);
+}
+
+.fab-active {
+  background: var(--gold) !important;
+  animation: fabPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes fabPulse {
+  0%, 100% { box-shadow: var(--shadow-lg); }
+  50% { box-shadow: 0 4px 24px rgba(240, 201, 92, 0.5); }
+}
+
+/* Furniture Placement Modal */
+.furniture-tile-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.furniture-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.furniture-option {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.furniture-option.furniture-no-fit {
+  opacity: 0.3;
+}
+
+.furniture-option canvas {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
+
+.furniture-option-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.furniture-name {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.furniture-size {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.furniture-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.furniture-buy-btn,
+.furniture-unlock-btn,
+.furniture-craft-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  text-align: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.furniture-buy-btn {
+  background: var(--green-light);
+  color: var(--text);
+}
+
+.furniture-unlock-btn {
+  background: var(--gold-light);
+  color: var(--text);
+}
+
+.furniture-craft-btn {
+  background: var(--blue-light);
+  color: var(--text);
+}
+
+.btn-too-poor {
+  opacity: 0.45;
+}
+
+.furniture-buy-btn:disabled,
+.furniture-unlock-btn:disabled,
+.furniture-craft-btn:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+
+.furniture-buy-btn:active:not(:disabled):not(.btn-too-poor),
+.furniture-unlock-btn:active:not(:disabled):not(.btn-too-poor),
+.furniture-craft-btn:active:not(:disabled):not(.btn-too-poor) {
+  transform: scale(0.95);
+}
+
+/* Shake animation for insufficient resources */
+.btn-shake {
+  animation: btnShake 0.35s ease;
+}
+
+@keyframes btnShake {
+  0%, 100% { transform: translateX(0); }
+  20%  { transform: translateX(-4px); }
+  40%  { transform: translateX(4px); }
+  60%  { transform: translateX(-3px); }
+  80%  { transform: translateX(2px); }
+}
+
+/* Furniture Manage Modal */
+.furniture-manage {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.furniture-manage canvas {
+  width: 120px;
+  height: 120px;
+  display: block;
+  margin: 0 auto 16px;
+}
+
+.furniture-manage-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
