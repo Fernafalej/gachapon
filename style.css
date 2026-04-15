@@ -90,6 +90,14 @@ html, body {
   text-align: right;
 }
 
+.resource-rate {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--green);
+  letter-spacing: -0.2px;
+  opacity: 0.9;
+}
+
 /* ---- Screens ---- */
 #screens {
   flex: 1;

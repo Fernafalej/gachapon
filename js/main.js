@@ -7,7 +7,8 @@ import { draw, freeRollDraw, processDrawResult, TOKEN_TABLES } from './gacha.js'
 import {
   applyOfflineProgress, checkCompletions, getAllActivityDefs, getActivityDef,
   startActivity, removeActivity, getBusyWorkers, calcDuration, canAfford,
-  getRemainingTime, getProgress, formatTime
+  getRemainingTime, getProgress, formatTime,
+  applyTick, getOutputRate, getTotalProductionRates, formatRate
 } from './activities.js';
 import { allFurniture } from '../data/furniture/index.js';
 import {
@@ -402,7 +403,7 @@ if (offlineCompletions.length > 0) {
       const name = def ? def.name : c.activityId;
       const outputStr = Object.entries(c.output).map(([k, v]) => {
         const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
-        return `${icons[k] || ''} +${v * (c.cycles || 1)} ${k}`;
+        return `${icons[k] || ''} +${v} ${k}`;
       }).join(', ');
       msg += `<div class="offline-item">${name}: ${outputStr}</div>`;
     } else if (c.type === 'room_built') {
@@ -953,6 +954,39 @@ function startActivityChecker() {
 
 startActivityChecker();
 
+// ---- Produktions-Tick (1×/s) ----
+// Ressourcen laufen kontinuierlich, kein Warten auf Payout.
+setInterval(() => {
+  mutate(s => applyTick(s));
+  updateResourceBar();
+  updateProductionRates();
+}, 1000);
+
+/**
+ * Zeigt die aktuelle Produktionsrate (+X/h) neben jedem Ressourcen-Icon.
+ * Injiziert einen <span class="resource-rate"> falls noch nicht vorhanden.
+ */
+function updateProductionRates() {
+  const s = getState();
+  const rates = getTotalProductionRates(s);
+  const keys = { material: 'res-material', ideas: 'res-ideas', goods: 'res-goods' };
+
+  for (const [key, elId] of Object.entries(keys)) {
+    const container = document.getElementById(elId);
+    if (!container) continue;
+
+    let rateEl = container.querySelector('.resource-rate');
+    if (!rateEl) {
+      rateEl = document.createElement('span');
+      rateEl.className = 'resource-rate';
+      container.appendChild(rateEl);
+    }
+    const perSec = rates[key] || 0;
+    rateEl.textContent = perSec > 0 ? formatRate(perSec) : '';
+    rateEl.style.display = perSec > 0 ? '' : 'none';
+  }
+}
+
 // ========================================
 // SPRECHBLASEN (Schritt 11)
 // ========================================
@@ -1082,18 +1116,30 @@ function openActivityModal() {
     activeHTML += '<div class="activity-list">';
     s.activities.forEach((act, idx) => {
       const def = getActivityDef(act.id);
-      const remaining = getRemainingTime(act);
       const progress = getProgress(act);
       const workerNames = act.workers.map(id => {
         const c = getCharacter(id);
         return c ? c.name : id;
       }).join(', ');
 
+      // Zimmer-Bau: zeige Countdown. Ressourcen: zeige Rate.
+      let metaRight;
+      if (act.unlocks === 'room_slot') {
+        const remaining = getRemainingTime(act);
+        metaRight = `${formatTime(remaining)} verbleibend`;
+      } else {
+        const rateStr = Object.entries(getOutputRate(act)).map(([k, perSec]) => {
+          const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
+          return `${icons[k] || ''}${formatRate(perSec)}`;
+        }).join(' ');
+        metaRight = rateStr || '…';
+      }
+
       activeHTML += `
         <div class="activity-item active-activity">
           <div class="activity-name">${def ? def.name : act.id}</div>
           <div class="activity-meta">
-            ${workerNames} · ${formatTime(remaining)} verbleibend
+            ${workerNames} · ${metaRight}
           </div>
           <div class="activity-progress-bar">
             <div class="activity-progress-fill" style="width: ${Math.round(progress * 100)}%"></div>
@@ -1121,11 +1167,16 @@ function openActivityModal() {
           }).join(' + ')
         : 'Keine';
 
+      // Zeige Rate statt einmaligen Output (außer bei room_slot)
       const outputStr = def.output
-        ? Object.entries(def.output).map(([k, v]) => {
-            const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
-            return `${icons[k] || ''} +${v}`;
-          }).join(', ')
+        ? (() => {
+            // Berechne Rate für Vorschau mit 1 Worker (Basisdauer)
+            const previewActivity = { output: def.output, duration: def.duration_base };
+            return Object.entries(getOutputRate(previewActivity)).map(([k, perSec]) => {
+              const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
+              return `${icons[k] || ''}${formatRate(perSec)}`;
+            }).join(', ');
+          })()
         : (def.unlocks === 'room_slot' ? '🏠 Neues Zimmer' : '–');
 
       const durationStr = formatTime(def.duration_base);
@@ -1186,7 +1237,7 @@ function openWorkerSelectModal(activityId) {
   const selected = new Set();
 
   function renderWorkerModal() {
-    const duration = calcDuration(def, Math.max(1, selected.size), s);
+    const duration = calcDuration(def, Math.max(1, selected.size), s, [...selected]);
     const durationStr = formatTime(duration);
 
     let workersHTML = '';
