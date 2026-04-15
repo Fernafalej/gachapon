@@ -31,7 +31,9 @@
       <div id="screen-house" class="screen active">
         <canvas id="room-canvas"></canvas>
         <div id="speech-bubbles-layer"></div>
+        <div id="room-indicator"></div>
         <button id="btn-assign-activity" class="fab" aria-label="Tätigkeit zuweisen">⚒️</button>
+        <button id="btn-place-furniture" class="fab fab-secondary" aria-label="Möbel platzieren">🪑</button>
         <div id="activity-badge" class="badge hidden">✔️</div>
       </div>
 
@@ -42,6 +44,14 @@
           <button class="filter-btn" data-filter="common">Common</button>
           <button class="filter-btn" data-filter="rare">Rare</button>
           <button class="filter-btn" data-filter="super_rare">Super Rare</button>
+        </div>
+        <div id="species-filters">
+          <button class="species-btn active" data-species="all">Alle</button>
+          <button class="species-btn" data-species="bear">🐻</button>
+          <button class="species-btn" data-species="bunny">🐰</button>
+          <button class="species-btn" data-species="slime">🫧</button>
+          <button class="species-btn" data-species="fox">🦊</button>
+          <button class="species-btn" data-species="dragon">🐉</button>
         </div>
         <div id="collection-grid"></div>
       </div>

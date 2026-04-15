@@ -2,7 +2,7 @@
 import { initState, getState, mutate, resetState, saveState } from './state.js';
 import { initUI, switchScreen, setOnScreenChange, updateResourceBar, openModal, closeModal, showConfirm } from './ui.js';
 import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount, getCharactersByRarity } from './characters.js';
-import { initRoom, updateRoom, renderRoom, initRoomControls } from './room.js';
+import { initRoom, updateRoom, renderRoom, initRoomControls, setOnTileTap, setFurniture, findFurnitureAt, GRID } from './room.js';
 import { draw, freeRollDraw, processDrawResult, TOKEN_TABLES } from './gacha.js';
 import {
   applyOfflineProgress, checkCompletions, getAllActivityDefs, getActivityDef,
@@ -19,6 +19,10 @@ import {
 // ---- Möbel-Lookup ----
 const furnitureMap = {};
 for (const f of allFurniture) furnitureMap[f.id] = f;
+
+// ---- Room Management ----
+let currentRoomIndex = 0;
+let placingFurnitureMode = false;
 
 // ---- App Start ----
 const state = initState();
@@ -78,7 +82,8 @@ function getDemoFurniture() {
 }
 
 // ---- Raum-Setup ----
-function setupRoom() {
+function setupRoom(roomIndex) {
+  if (roomIndex !== undefined) currentRoomIndex = roomIndex;
   const s = getState();
   const collected = Object.keys(s.collection);
   let chars;
@@ -88,12 +93,13 @@ function setupRoom() {
     chars = getAllCharacters().slice(0, Math.min(5, getAllCharacters().length));
   }
 
-  const placements = s.house.placements || [];
+  const placements = (s.house.placements || []).filter(p => (p.room || 0) === currentRoomIndex);
   const furniture = placements.length > 0
     ? buildFurnitureForRoom(placements)
-    : getDemoFurniture();
+    : (currentRoomIndex === 0 ? getDemoFurniture() : []);
 
   initRoom(chars, drawCharacter, furniture);
+  updateRoomIndicator();
 }
 
 try { setupRoom(); } catch (e) { console.error('Raum-Init Fehler:', e); }
@@ -113,7 +119,7 @@ function stopRender() { if (animationId) { cancelAnimationFrame(animationId); an
 
 // ---- Screen-Wechsel ----
 setOnScreenChange((screen) => {
-  if (screen === 'house') { resizeCanvas(); startRender(); updateActivityBadge(); }
+  if (screen === 'house') { resizeCanvas(); startRender(); updateActivityBadge(); updateRoomIndicator(); }
   else stopRender();
   if (screen === 'collection') renderCollection();
   if (screen === 'profile') renderProfile();
@@ -121,6 +127,207 @@ setOnScreenChange((screen) => {
 });
 
 startRender();
+
+// ---- Room Indicator ----
+function updateRoomIndicator() {
+  const s = getState();
+  const container = document.getElementById('room-indicator');
+  if (!container) return;
+  if (s.house.rooms <= 1) { container.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < s.house.rooms; i++) {
+    html += `<button class="room-dot ${i === currentRoomIndex ? 'active' : ''}" data-room="${i}">${i + 1}</button>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.room-dot').forEach(dot => {
+    dot.addEventListener('click', () => {
+      const idx = parseInt(dot.dataset.room);
+      if (idx !== currentRoomIndex) {
+        setupRoom(idx);
+      }
+    });
+  });
+}
+
+updateRoomIndicator();
+
+// ---- Furniture Placement Button ----
+document.getElementById('btn-place-furniture').addEventListener('click', () => {
+  placingFurnitureMode = !placingFurnitureMode;
+  document.getElementById('btn-place-furniture').classList.toggle('fab-active', placingFurnitureMode);
+});
+
+// ---- Tile Tap Handler ----
+setOnTileTap((tile) => {
+  if (placingFurnitureMode) {
+    const existing = findFurnitureAt(tile.tx, tile.ty);
+    if (existing) {
+      openFurnitureManageModal(existing, tile);
+    } else {
+      openFurniturePlaceModal(tile.tx, tile.ty);
+    }
+  }
+});
+
+function openFurniturePlaceModal(tx, ty) {
+  const s = getState();
+  const owned = s.unlocked_recipes || [];
+
+  let itemsHTML = '<div class="furniture-grid">';
+  for (const f of allFurniture) {
+    const canBuy = f.buy && s.resources.goods >= f.buy.cost.goods;
+    const canCraft = owned.includes(f.id) && f.craft &&
+      s.resources.material >= (f.craft.cost.material || 0) &&
+      s.resources.ideas >= (f.craft.cost.ideas || 0);
+    const fits = checkFurnitureFits(tx, ty, f.size || { w: 1, d: 1 });
+
+    const buyLabel = f.buy ? `${f.buy.cost.goods} 🧁` : '–';
+    const craftLabel = owned.includes(f.id)
+      ? `${f.craft?.cost?.material || 0} 🪵 + ${f.craft?.cost?.ideas || 0} 💡`
+      : `🔒 ${f.craft?.unlock_cost?.ideas || '?'} 💡`;
+
+    itemsHTML += `
+      <div class="furniture-option ${!fits ? 'furniture-no-fit' : ''}" data-furniture-id="${f.id}">
+        <canvas width="64" height="64" data-furniture-id="${f.id}"></canvas>
+        <div class="furniture-name">${f.name}</div>
+        <div class="furniture-actions">
+          <button class="furniture-buy-btn ${canBuy && fits ? '' : 'disabled'}" data-id="${f.id}" data-mode="buy">
+            Kaufen ${buyLabel}
+          </button>
+          <button class="furniture-craft-btn ${canCraft && fits ? '' : 'disabled'}" data-id="${f.id}" data-mode="craft">
+            ${owned.includes(f.id) ? 'Bauen' : 'Rezept'} ${craftLabel}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+  itemsHTML += '</div>';
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Möbel platzieren (${tx},${ty})</span>
+      <button class="modal-close">✕</button>
+    </div>
+    ${itemsHTML}
+  `);
+
+  // Draw furniture previews
+  document.querySelectorAll('.furniture-option canvas').forEach(c => {
+    const fId = c.dataset.furnitureId;
+    const fDef = furnitureMap[fId];
+    if (fDef && fDef.draw) {
+      const fCtx = c.getContext('2d');
+      fCtx.save();
+      fDef.draw(fCtx, 32, 48);
+      fCtx.restore();
+    }
+  });
+
+  // Buy buttons
+  document.querySelectorAll('.furniture-buy-btn:not(.disabled)').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fId = btn.dataset.id;
+      const fDef = furnitureMap[fId];
+      if (!fDef) return;
+      mutate(s => {
+        s.resources.goods -= fDef.buy.cost.goods;
+        s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
+      });
+      closeModal();
+      placingFurnitureMode = false;
+      document.getElementById('btn-place-furniture').classList.remove('fab-active');
+      updateResourceBar();
+      setupRoom(currentRoomIndex);
+    });
+  });
+
+  // Craft buttons
+  document.querySelectorAll('.furniture-craft-btn:not(.disabled)').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fId = btn.dataset.id;
+      const fDef = furnitureMap[fId];
+      if (!fDef) return;
+      const s = getState();
+      if (!s.unlocked_recipes.includes(fId)) {
+        const cost = fDef.craft?.unlock_cost?.ideas || 0;
+        if (s.resources.ideas >= cost) {
+          mutate(s => {
+            s.resources.ideas -= cost;
+            s.unlocked_recipes.push(fId);
+          });
+          updateResourceBar();
+          openFurniturePlaceModal(tx, ty);
+        }
+      } else {
+        mutate(s => {
+          s.resources.material -= (fDef.craft.cost.material || 0);
+          s.resources.ideas -= (fDef.craft.cost.ideas || 0);
+          s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
+        });
+        closeModal();
+        placingFurnitureMode = false;
+        document.getElementById('btn-place-furniture').classList.remove('fab-active');
+        updateResourceBar();
+        setupRoom(currentRoomIndex);
+      }
+    });
+  });
+}
+
+function checkFurnitureFits(tx, ty, size) {
+  if (tx + size.w > GRID || ty + size.d > GRID) return false;
+  const s = getState();
+  const placements = (s.house.placements || []).filter(p => (p.room || 0) === currentRoomIndex);
+  for (const p of placements) {
+    const pDef = furnitureMap[p.furniture_id];
+    if (!pDef) continue;
+    const ps = pDef.size || { w: 1, d: 1 };
+    if (tx < p.tx + ps.w && tx + size.w > p.tx &&
+        ty < p.ty + ps.d && ty + size.d > p.ty) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function openFurnitureManageModal(furniture, tile) {
+  const fDef = furnitureMap[furniture.id];
+  const name = fDef ? fDef.name : furniture.id;
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">${name}</span>
+      <button class="modal-close">✕</button>
+    </div>
+    <div class="furniture-manage">
+      <canvas id="manage-furniture-canvas" width="120" height="120"></canvas>
+      <div class="furniture-manage-actions">
+        <button class="gacha-btn secondary" id="btn-remove-furniture">🗑️ Entfernen</button>
+      </div>
+    </div>
+  `);
+
+  const c = document.getElementById('manage-furniture-canvas');
+  if (c && fDef && fDef.draw) {
+    const fCtx = c.getContext('2d');
+    fCtx.save();
+    fCtx.translate(60, 80);
+    fCtx.scale(1.5, 1.5);
+    fDef.draw(fCtx, 0, 0);
+    fCtx.restore();
+  }
+
+  document.getElementById('btn-remove-furniture').addEventListener('click', () => {
+    mutate(s => {
+      s.house.placements = s.house.placements.filter(p =>
+        !((p.room || 0) === currentRoomIndex && p.tx === furniture.tx && p.ty === furniture.ty && p.furniture_id === furniture.id)
+      );
+    });
+    closeModal();
+    updateResourceBar();
+    setupRoom(currentRoomIndex);
+  });
+}
 
 // ---- Offline-Completions anzeigen ----
 if (offlineCompletions.length > 0) {
@@ -650,11 +857,15 @@ let activityCheckInterval = null;
 function updateActivityBadge() {
   const s = getState();
   const badge = document.getElementById('activity-badge');
-  // Badge zeigen wenn Aktivitäten abgeschlossen sind
   const completions = checkCompletions(s);
   if (completions.length > 0) {
     saveState(s);
     updateResourceBar();
+    updateRoomIndicator();
+    // If a room was built, refresh the room
+    if (completions.some(c => c.type === 'room_built')) {
+      setupRoom(currentRoomIndex);
+    }
     badge.classList.remove('hidden');
     setTimeout(() => badge.classList.add('hidden'), 3000);
   } else {
@@ -671,6 +882,7 @@ function startActivityChecker() {
     if (completions.length > 0) {
       saveState(s);
       updateResourceBar();
+      updateRoomIndicator();
       updateActivityBadge();
     }
   }, 5000);
@@ -903,8 +1115,10 @@ function renderCollection() {
   const all = getAllCharacters();
   const collection = getState().collection;
   const activeFilter = document.querySelector('.filter-btn.active')?.dataset.filter || 'all';
+  const activeSpecies = document.querySelector('.species-btn.active')?.dataset.species || 'all';
 
-  const filtered = activeFilter === 'all' ? all : all.filter(c => c.rarity === activeFilter);
+  let filtered = activeFilter === 'all' ? all : all.filter(c => c.rarity === activeFilter);
+  if (activeSpecies !== 'all') filtered = filtered.filter(c => c.species === activeSpecies);
 
   filtered.forEach(char => {
     const owned = collection[char.id];
@@ -912,40 +1126,45 @@ function renderCollection() {
     card.className = `collection-card rarity-border-${char.rarity}`;
     if (!owned) card.classList.add('undiscovered');
 
+    // Always draw the character – undiscovered ones get silhouette via CSS
+    const miniCanvas = document.createElement('canvas');
+    miniCanvas.width = 80;
+    miniCanvas.height = 80;
+    const mCtx = miniCanvas.getContext('2d');
+    const specDraw = getSpeciesDraw(char.species);
+    if (specDraw) {
+      mCtx.save();
+      if (!owned) {
+        // Draw silhouette: render character, then composite to solid color
+        specDraw.idle(mCtx, 40, 64, performance.now() / 1000, char.palette);
+        mCtx.globalCompositeOperation = 'source-atop';
+        mCtx.fillStyle = '#C8BEB4';
+        mCtx.fillRect(0, 0, 80, 80);
+      } else {
+        specDraw.idle(mCtx, 40, 64, performance.now() / 1000, char.palette);
+      }
+      mCtx.restore();
+    }
+    card.appendChild(miniCanvas);
+
+    const name = document.createElement('div');
+    name.className = 'char-name';
+    name.textContent = owned ? char.name : '???';
+    card.appendChild(name);
+
     if (owned) {
-      const miniCanvas = document.createElement('canvas');
-      miniCanvas.width = 64;
-      miniCanvas.height = 64;
-      const mCtx = miniCanvas.getContext('2d');
-      const specDraw = getSpeciesDraw(char.species);
-      if (specDraw) specDraw.idle(mCtx, 32, 52, performance.now() / 1000, char.palette);
-      card.appendChild(miniCanvas);
-
-      const name = document.createElement('div');
-      name.className = 'char-name';
-      name.textContent = char.name;
-      card.appendChild(name);
-
       const lvl = document.createElement('div');
       lvl.className = 'level-badge';
       lvl.textContent = `Lv.${owned.level}`;
       card.appendChild(lvl);
-
-      // Tap → Detail
       card.addEventListener('click', () => showCharDetail(char, owned));
-    } else {
-      const placeholder = document.createElement('div');
-      placeholder.className = 'char-name';
-      placeholder.textContent = '???';
-      placeholder.style.fontSize = '24px';
-      card.appendChild(placeholder);
     }
 
     grid.appendChild(card);
   });
 }
 
-// Filter-Buttons
+// Filter-Buttons (rarity)
 document.querySelectorAll('.filter-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -954,14 +1173,37 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
   });
 });
 
+// Species-Buttons
+document.querySelectorAll('.species-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.species-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderCollection();
+  });
+});
+
 function showCharDetail(char, owned) {
   const rarityNames = { common: 'Common', rare: 'Rare', super_rare: 'Super Rare' };
   const shardCost = owned.level < 5 ? owned.level : '–';
+  const shardProgress = owned.level < 5 ? Math.min(1, owned.shards / owned.level) : 1;
   const bonusText = char.bonus && owned.level >= char.bonus.activatesAtLevel
     ? `${char.bonus.type === 'speed' ? '⚡' : '📦'} +${Math.round(char.bonus.value * 100)}% ${char.bonus.type}`
     : char.bonus
       ? `Ab Lv.${char.bonus.activatesAtLevel}: +${Math.round(char.bonus.value * 100)}% ${char.bonus.type}`
       : 'Keiner';
+
+  // Available poses
+  const allPoses = ['idle', 'walk'];
+  if (char.poses) allPoses.push(...char.poses);
+
+  const poseLabels = {
+    idle: '😊 Ruhe', walk: '🚶 Laufen', hard_work: '🔨 Arbeit',
+    think: '💭 Denken', craft: '✂️ Handwerk'
+  };
+
+  const poseBtnsHTML = allPoses.map(p =>
+    `<button class="pose-btn ${p === 'idle' ? 'active' : ''}" data-pose="${p}">${poseLabels[p] || p}</button>`
+  ).join('');
 
   const html = `
     <div class="modal-header">
@@ -969,7 +1211,8 @@ function showCharDetail(char, owned) {
       <button class="modal-close">✕</button>
     </div>
     <div class="char-detail">
-      <canvas id="char-detail-canvas" width="120" height="120"></canvas>
+      <canvas id="char-detail-canvas" width="160" height="160"></canvas>
+      <div class="pose-selector">${poseBtnsHTML}</div>
       <div class="char-detail-info">
         <div class="detail-row">
           <span>Seltenheit</span>
@@ -979,10 +1222,11 @@ function showCharDetail(char, owned) {
           <span>Level</span>
           <span>${owned.level} / 5</span>
         </div>
-        <div class="detail-row">
+        <div class="detail-row detail-row-bar">
           <span>Scherben</span>
           <span>${owned.shards} / ${shardCost}</span>
         </div>
+        <div class="shard-bar"><div class="shard-bar-fill" style="width:${Math.round(shardProgress * 100)}%"></div></div>
         <div class="detail-row">
           <span>Duplikate</span>
           <span>${owned.count}×</span>
@@ -997,12 +1241,48 @@ function showCharDetail(char, owned) {
 
   openModal(html);
 
+  // Animated pose preview
+  let currentPose = 'idle';
+  let detailAnimId = null;
   const detailCanvas = document.getElementById('char-detail-canvas');
-  if (detailCanvas) {
-    const mCtx = detailCanvas.getContext('2d');
-    const specDraw = getSpeciesDraw(char.species);
-    if (specDraw) specDraw.idle(mCtx, 60, 100, performance.now() / 1000, char.palette);
+  if (!detailCanvas) return;
+  const dCtx = detailCanvas.getContext('2d');
+  const specDraw = getSpeciesDraw(char.species);
+
+  function drawPose(timestamp) {
+    const t = timestamp / 1000;
+    dCtx.clearRect(0, 0, 160, 160);
+    if (specDraw) {
+      dCtx.save();
+      dCtx.translate(80, 130);
+      dCtx.scale(2.5, 2.5);
+      if (currentPose === 'idle') specDraw.idle(dCtx, 0, 0, t, char.palette);
+      else if (currentPose === 'walk') specDraw.walk(dCtx, 0, 0, t, 0, char.palette);
+      else if (specDraw.poses && specDraw.poses[currentPose]) specDraw.poses[currentPose](dCtx, 0, 0, t, char.palette);
+      else specDraw.work_default(dCtx, 0, 0, t, char.palette);
+      dCtx.restore();
+    }
+    detailAnimId = requestAnimationFrame(drawPose);
   }
+  detailAnimId = requestAnimationFrame(drawPose);
+
+  // Stop animation when modal closes
+  const observer = new MutationObserver(() => {
+    if (document.getElementById('modal-overlay')?.classList.contains('hidden')) {
+      if (detailAnimId) cancelAnimationFrame(detailAnimId);
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.getElementById('modal-overlay'), { attributes: true });
+
+  // Pose buttons
+  document.querySelectorAll('.pose-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.pose-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentPose = btn.dataset.pose;
+    });
+  });
 }
 
 // ========================================
@@ -1060,10 +1340,10 @@ function renderProfile() {
 document.getElementById('btn-reset').addEventListener('click', () => {
   showConfirm('Willst du wirklich deinen gesamten Spielstand löschen? Das kann nicht rückgängig gemacht werden.', () => {
     resetState();
-    // State neu laden
     const fresh = initState();
+    currentRoomIndex = 0;
     updateResourceBar();
-    setupRoom();
+    setupRoom(0);
     switchScreen('house');
   });
 });

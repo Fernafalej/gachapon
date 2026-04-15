@@ -41,10 +41,17 @@ const WIN_FRAME   = '#C8B8A4';
 // ---- Externe Draw-Funktion ----
 let drawCharFn = null;
 
+// ---- Tile Tap Callback ----
+let _tileTapCb = null;
+export function setOnTileTap(cb) { _tileTapCb = cb; }
+
 // ---- Sprites + Furniture ----
 const sprites = [];
 let furnitureItems = [];
 let initialized = false;
+
+// ---- Canvas ref for coordinate conversion ----
+let _canvasRef = null;
 
 /**
  * Raum initialisieren.
@@ -95,6 +102,43 @@ export function initRoom(chars, drawFn, furniture) {
 
 export function getSprites() { return sprites; }
 export function getFurnitureItems() { return furnitureItems; }
+
+/**
+ * Swap furniture without reinitializing characters.
+ */
+export function setFurniture(furniture) {
+  furnitureItems = furniture || [];
+}
+
+/**
+ * Find furniture at a given tile position.
+ */
+export function findFurnitureAt(tx, ty) {
+  for (const f of furnitureItems) {
+    if (tx >= f.tx && tx < f.tx + f.size.w &&
+        ty >= f.ty && ty < f.ty + f.size.d) {
+      return f;
+    }
+  }
+  return null;
+}
+
+/**
+ * Convert client (touch/mouse) coordinates to tile position,
+ * accounting for camera pan/zoom.
+ */
+function clientToTile(clientX, clientY) {
+  if (!_canvasRef) return { tx: -1, ty: -1 };
+  const rect = _canvasRef.getBoundingClientRect();
+  let sx = clientX - rect.left;
+  let sy = clientY - rect.top;
+  const w = rect.width;
+  const h = rect.height;
+  // Invert camera transform: translate(w/2+panX, h/2+panY) scale(zoom) translate(-w/2,-h/2)
+  sx = (sx - w / 2 - cam.panX) / cam.zoom + w / 2;
+  sy = (sy - h / 2 - cam.panY) / cam.zoom + h / 2;
+  return screenToTile(sx, sy);
+}
 
 function clmp(v) { return Math.max(0.4, Math.min(GRID - 0.4, v)); }
 
@@ -339,20 +383,35 @@ let _lastTap = 0;
 let _mouseDown = false;
 
 export function initRoomControls(canvas) {
+  _canvasRef = canvas;
   canvas.style.touchAction = 'none';
+
+  // Tap detection state
+  let _tapStartX = 0, _tapStartY = 0, _tapStartTime = 0;
+  let _wasDrag = false;
+  let _tapTimeout = null;
+
+  function handleTap(cx, cy) {
+    const tile = clientToTile(cx, cy);
+    if (_tileTapCb && tile.tx >= 0 && tile.tx < GRID && tile.ty >= 0 && tile.ty < GRID) {
+      _tileTapCb(tile);
+    }
+  }
 
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     _touches = [...e.touches];
     if (_touches.length === 1) {
-      const now = Date.now();
-      if (now - _lastTap < 300) { cam.panX = 0; cam.panY = 0; cam.zoom = 1; _lastTap = 0; return; }
-      _lastTap = now;
+      _tapStartX = _touches[0].clientX;
+      _tapStartY = _touches[0].clientY;
+      _tapStartTime = Date.now();
+      _wasDrag = false;
       _panning = true;
       _lastX = _touches[0].clientX;
       _lastY = _touches[0].clientY;
     } else if (_touches.length === 2) {
       _panning = false;
+      _wasDrag = true;
       _lastPinch = _pinchDist(_touches);
     }
   }, { passive: false });
@@ -361,21 +420,44 @@ export function initRoomControls(canvas) {
     e.preventDefault();
     const t = [...e.touches];
     if (t.length === 1 && _panning) {
-      cam.panX += t[0].clientX - _lastX;
-      cam.panY += t[0].clientY - _lastY;
+      const mx = t[0].clientX - _lastX;
+      const my = t[0].clientY - _lastY;
+      cam.panX += mx;
+      cam.panY += my;
       _lastX = t[0].clientX;
       _lastY = t[0].clientY;
+      const totalDx = t[0].clientX - _tapStartX;
+      const totalDy = t[0].clientY - _tapStartY;
+      if (Math.abs(totalDx) > 10 || Math.abs(totalDy) > 10) _wasDrag = true;
     } else if (t.length === 2 && _lastPinch > 0) {
       const d = _pinchDist(t);
       cam.zoom = _clampZ(cam.zoom * (d / _lastPinch));
       _lastPinch = d;
+      _wasDrag = true;
     }
   }, { passive: false });
 
   canvas.addEventListener('touchend', e => {
     _touches = [...e.touches];
     if (_touches.length < 2) _lastPinch = 0;
-    if (_touches.length === 0) _panning = false;
+    if (_touches.length === 0) {
+      _panning = false;
+      const elapsed = Date.now() - _tapStartTime;
+      if (!_wasDrag && elapsed < 350) {
+        // Possible tap – check for double-tap
+        if (_tapTimeout) {
+          clearTimeout(_tapTimeout);
+          _tapTimeout = null;
+          cam.panX = 0; cam.panY = 0; cam.zoom = 1;
+        } else {
+          const sx = _tapStartX, sy = _tapStartY;
+          _tapTimeout = setTimeout(() => {
+            _tapTimeout = null;
+            handleTap(sx, sy);
+          }, 280);
+        }
+      }
+    }
   }, { passive: false });
 
   canvas.addEventListener('wheel', e => {
@@ -383,15 +465,28 @@ export function initRoomControls(canvas) {
     cam.zoom = _clampZ(cam.zoom * (e.deltaY > 0 ? 0.92 : 1.08));
   }, { passive: false });
 
-  canvas.addEventListener('mousedown', e => { _mouseDown = true; _lastX = e.clientX; _lastY = e.clientY; });
+  // Mouse controls
+  let _mouseStartX = 0, _mouseStartY = 0, _mouseDrag = false;
+  canvas.addEventListener('mousedown', e => {
+    _mouseDown = true;
+    _mouseDrag = false;
+    _lastX = e.clientX; _lastY = e.clientY;
+    _mouseStartX = e.clientX; _mouseStartY = e.clientY;
+  });
   canvas.addEventListener('mousemove', e => {
     if (!_mouseDown) return;
     cam.panX += e.clientX - _lastX;
     cam.panY += e.clientY - _lastY;
-    _lastX = e.clientX;
-    _lastY = e.clientY;
+    _lastX = e.clientX; _lastY = e.clientY;
+    const dx = e.clientX - _mouseStartX, dy = e.clientY - _mouseStartY;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) _mouseDrag = true;
   });
-  canvas.addEventListener('mouseup', () => { _mouseDown = false; });
+  canvas.addEventListener('mouseup', e => {
+    if (!_mouseDrag && _mouseDown) {
+      handleTap(e.clientX, e.clientY);
+    }
+    _mouseDown = false;
+  });
   canvas.addEventListener('mouseleave', () => { _mouseDown = false; });
   canvas.addEventListener('dblclick', () => { cam.panX = 0; cam.panY = 0; cam.zoom = 1; });
 }
