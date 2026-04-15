@@ -69,16 +69,30 @@ function buildFurnitureForRoom(placements) {
   }).filter(Boolean);
 }
 
-function getDemoFurniture() {
-  return buildFurnitureForRoom([
-    { furniture_id: 'rug',          tx: 2, ty: 2 },
-    { furniture_id: 'wooden_table', tx: 1, ty: 0 },
-    { furniture_id: 'cozy_chair',   tx: 0, ty: 2 },
-    { furniture_id: 'plant',        tx: 5, ty: 0 },
-    { furniture_id: 'bookshelf',    tx: 0, ty: 4 },
-    { furniture_id: 'lamp',         tx: 5, ty: 5 },
-    { furniture_id: 'bed',          tx: 4, ty: 0 },
-  ]);
+function getDemoPlacementsForRoom0() {
+  return [
+    { room: 0, furniture_id: 'rug',          tx: 2, ty: 2 },
+    { room: 0, furniture_id: 'wooden_table', tx: 1, ty: 0 },
+    { room: 0, furniture_id: 'cozy_chair',   tx: 0, ty: 2 },
+    { room: 0, furniture_id: 'plant',        tx: 5, ty: 0 },
+    { room: 0, furniture_id: 'bookshelf',    tx: 0, ty: 4 },
+    { room: 0, furniture_id: 'lamp',         tx: 5, ty: 5 },
+    { room: 0, furniture_id: 'bed',          tx: 4, ty: 0 },
+  ];
+}
+
+/**
+ * Seed demo furniture into state so it can be managed (removed/replaced) normally.
+ * Only runs once – when room 0 has zero placements.
+ */
+function seedDemoFurniture() {
+  mutate(s => {
+    if (!s.house.placements) s.house.placements = [];
+    const room0 = s.house.placements.filter(p => (p.room || 0) === 0);
+    if (room0.length === 0) {
+      s.house.placements.push(...getDemoPlacementsForRoom0());
+    }
+  });
 }
 
 // ---- Raum-Setup ----
@@ -93,14 +107,16 @@ function setupRoom(roomIndex) {
     chars = getAllCharacters().slice(0, Math.min(5, getAllCharacters().length));
   }
 
+  // Always build furniture from state – no separate demo path
   const placements = (s.house.placements || []).filter(p => (p.room || 0) === currentRoomIndex);
-  const furniture = placements.length > 0
-    ? buildFurnitureForRoom(placements)
-    : (currentRoomIndex === 0 ? getDemoFurniture() : []);
+  const furniture = buildFurnitureForRoom(placements);
 
   initRoom(chars, drawCharacter, furniture);
   updateRoomIndicator();
 }
+
+// Seed demo furniture into state on first run
+seedDemoFurniture();
 
 try { setupRoom(); } catch (e) { console.error('Raum-Init Fehler:', e); }
 
@@ -1382,6 +1398,7 @@ document.getElementById('btn-reset').addEventListener('click', () => {
     resetState();
     const fresh = initState();
     currentRoomIndex = 0;
+    seedDemoFurniture();
     updateResourceBar();
     setupRoom(0);
     switchScreen('house');
