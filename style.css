@@ -520,8 +520,13 @@ html, body {
 #screen-gacha.revealing #gacha-token-display,
 #screen-gacha.revealing #gacha-controls,
 #screen-gacha.revealing #gacha-info,
-#screen-gacha.revealing #gacha-stage {
+#screen-gacha.revealing #gacha-machine {
   display: none !important;
+}
+
+#screen-gacha.revealing #gacha-stage {
+  position: absolute;
+  inset: 0;
 }
 
 /* Reveal takes over the entire screen */
