@@ -201,25 +201,28 @@ function openFurniturePlaceModal(tx, ty) {
   for (const f of allFurniture) {
     const fits = checkFurnitureFits(tx, ty, f.size || { w: 1, d: 1 });
     const hasRecipe = owned.includes(f.id);
-    const canBuy = fits && f.buy && s.resources.goods >= f.buy.cost.goods;
-    const unlockCost = f.craft?.unlock_cost?.ideas || 0;
-    const canUnlock = fits && !hasRecipe && s.resources.ideas >= unlockCost;
+    // Generisch: alle Ressourcen in den Cost-Objekten prüfen
+    const canBuy = fits && f.buy &&
+      Object.entries(f.buy.cost || {}).every(([k, v]) => (s.resources[k] || 0) >= v);
+    // Rezept-Freischaltung: vorläufig kostenlos bis Research-Bar implementiert ist
+    // TODO: unlock_cost an research.unlocked koppeln
+    const canUnlock = fits && !hasRecipe && !!f.craft;
     const canCraft = fits && hasRecipe && f.craft &&
-      s.resources.material >= (f.craft.cost.material || 0) &&
-      s.resources.ideas >= (f.craft.cost.ideas || 0);
+      Object.entries(f.craft.cost || {}).every(([k, v]) => (s.resources[k] || 0) >= v);
 
-    const buyLabel = f.buy ? `${f.buy.cost.goods} 🧁` : '–';
+    const RES_ICONS = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵', goods: '🧁', material: '🪵', ideas: '💡' };
+    const buyLabel = f.buy
+      ? Object.entries(f.buy.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ')
+      : '–';
 
-    // Craft button has 3 states: unlock / build / locked
     let craftBtnClass, craftBtnText;
     if (!hasRecipe) {
       craftBtnClass = canUnlock ? 'furniture-unlock-btn' : 'furniture-unlock-btn btn-too-poor';
-      craftBtnText = `🔓 Rezept ${unlockCost} 💡`;
+      craftBtnText = `🔓 Rezept freischalten`;
     } else {
-      const matCost = f.craft?.cost?.material || 0;
-      const ideaCost = f.craft?.cost?.ideas || 0;
+      const costParts = Object.entries(f.craft?.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ');
       craftBtnClass = canCraft ? 'furniture-craft-btn' : 'furniture-craft-btn btn-too-poor';
-      craftBtnText = `🔨 Bauen ${matCost} 🪵 + ${ideaCost} 💡`;
+      craftBtnText = `🔨 Bauen ${costParts || ''}`;
     }
 
     itemsHTML += `
@@ -270,13 +273,15 @@ function openFurniturePlaceModal(tx, ty) {
       const fDef = furnitureMap[fId];
       if (!fDef || !fDef.buy) return;
       const cur = getState();
-      if (cur.resources.goods < fDef.buy.cost.goods) {
+      const canAffordBuy = Object.entries(fDef.buy.cost || {}).every(([k, v]) => (cur.resources[k] || 0) >= v);
+      if (!canAffordBuy) {
         btn.classList.add('btn-shake');
         setTimeout(() => btn.classList.remove('btn-shake'), 400);
         return;
       }
       mutate(s => {
-        s.resources.goods -= fDef.buy.cost.goods;
+        for (const [k, v] of Object.entries(fDef.buy.cost || {}))
+          s.resources[k] = (s.resources[k] || 0) - v;
         s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
       });
       closeModal();
@@ -287,46 +292,36 @@ function openFurniturePlaceModal(tx, ty) {
     });
   });
 
-  // Unlock-Recipe buttons
   document.querySelectorAll('.furniture-unlock-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const fId = btn.dataset.id;
       const fDef = furnitureMap[fId];
       if (!fDef) return;
-      const cost = fDef.craft?.unlock_cost?.ideas || 0;
-      const cur = getState();
-      if (cur.resources.ideas < cost) {
-        btn.classList.add('btn-shake');
-        setTimeout(() => btn.classList.remove('btn-shake'), 400);
-        return;
-      }
+      // Rezept freischalten ist aktuell kostenlos (bis Research-Bar verdrahtet ist)
       mutate(s => {
-        s.resources.ideas -= cost;
         if (!s.unlocked_recipes) s.unlocked_recipes = [];
         s.unlocked_recipes.push(fId);
       });
       updateResourceBar();
-      openFurniturePlaceModal(tx, ty); // Re-render with recipe unlocked
+      openFurniturePlaceModal(tx, ty);
     });
   });
 
-  // Craft buttons (recipe already unlocked)
   document.querySelectorAll('.furniture-craft-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const fId = btn.dataset.id;
       const fDef = furnitureMap[fId];
       if (!fDef || !fDef.craft) return;
       const cur = getState();
-      const matCost = fDef.craft.cost.material || 0;
-      const ideaCost = fDef.craft.cost.ideas || 0;
-      if (cur.resources.material < matCost || cur.resources.ideas < ideaCost) {
+      const canAffordCraft = Object.entries(fDef.craft.cost || {}).every(([k, v]) => (cur.resources[k] || 0) >= v);
+      if (!canAffordCraft) {
         btn.classList.add('btn-shake');
         setTimeout(() => btn.classList.remove('btn-shake'), 400);
         return;
       }
       mutate(s => {
-        s.resources.material -= matCost;
-        s.resources.ideas -= ideaCost;
+        for (const [k, v] of Object.entries(fDef.craft.cost || {}))
+          s.resources[k] = (s.resources[k] || 0) - v;
         s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
       });
       closeModal();
@@ -402,7 +397,7 @@ if (offlineCompletions.length > 0) {
       const def = getActivityDef(c.activityId);
       const name = def ? def.name : c.activityId;
       const outputStr = Object.entries(c.output).map(([k, v]) => {
-        const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
+        const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
         return `${icons[k] || ''} +${v} ${k}`;
       }).join(', ');
       msg += `<div class="offline-item">${name}: ${outputStr}</div>`;
@@ -969,7 +964,7 @@ setInterval(() => {
 function updateProductionRates() {
   const s = getState();
   const rates = getTotalProductionRates(s);
-  const keys = { material: 'res-material', ideas: 'res-ideas', goods: 'res-goods' };
+  const keys = { wood: 'res-wood', stone: 'res-stone', food: 'res-food', fabric: 'res-fabric' };
 
   for (const [key, elId] of Object.entries(keys)) {
     const container = document.getElementById(elId);
@@ -1129,7 +1124,7 @@ function openActivityModal() {
         metaRight = `${formatTime(remaining)} verbleibend`;
       } else {
         const rateStr = Object.entries(getOutputRate(act)).map(([k, perSec]) => {
-          const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
+          const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
           return `${icons[k] || ''}${formatRate(perSec)}`;
         }).join(' ');
         metaRight = rateStr || '…';
@@ -1162,7 +1157,7 @@ function openActivityModal() {
       const affordable = canAfford(def, s);
       const costStr = def.cost
         ? Object.entries(def.cost).map(([k, v]) => {
-            const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
+            const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
             return `${icons[k] || ''} ${v}`;
           }).join(' + ')
         : 'Keine';
@@ -1173,7 +1168,7 @@ function openActivityModal() {
             // Berechne Rate für Vorschau mit 1 Worker (Basisdauer)
             const previewActivity = { output: def.output, duration: def.duration_base };
             return Object.entries(getOutputRate(previewActivity)).map(([k, perSec]) => {
-              const icons = { material: '🪵', ideas: '💡', goods: '🧁' };
+              const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
               return `${icons[k] || ''}${formatRate(perSec)}`;
             }).join(', ');
           })()

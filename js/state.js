@@ -1,6 +1,6 @@
 // js/state.js – Save/Load, localStorage-Wrapper
 const STORAGE_KEY = 'gachapon_hauschen';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 export function getDefaultState() {
   return {
@@ -8,9 +8,15 @@ export function getDefaultState() {
     last_seen: Math.floor(Date.now() / 1000),
 
     resources: {
-      material: 0,
-      ideas: 0,
-      goods: 0,
+      wood:   0,  // 🪵 Holz    – Bauen, Holzmöbel
+      stone:  0,  // 🪨 Stein   – Bauen, stabile Möbel
+      food:   0,  // 🍞 Nahrung – Figuren-Zufriedenheit (später)
+      fabric: 0,  // 🧵 Stoff   – weiche Möbel, Dekoration
+    },
+
+    research: {
+      progress: 0,    // 0–100 Float
+      unlocked: [],   // freigeschaltete Forschungs-IDs
     },
 
     gacha: {
@@ -51,8 +57,7 @@ export function loadState() {
 
     const parsed = JSON.parse(raw);
 
-    // Version-Migration (für Zukunft)
-    if (parsed.version < CURRENT_VERSION) {
+    if ((parsed.version || 1) < CURRENT_VERSION) {
       return migrateState(parsed);
     }
 
@@ -77,16 +82,46 @@ export function resetState() {
 }
 
 function migrateState(oldState) {
-  // Placeholder: Momentan keine Migration nötig.
-  // Fehlende Felder mit Defaults auffüllen:
   const fresh = getDefaultState();
-  const merged = { ...fresh, ...oldState, version: CURRENT_VERSION };
 
-  // Verschachtelte Objekte einzeln mergen
+  // v1 → v2: Ressourcen umbenennen
+  if ((oldState.version || 1) < 2) {
+    const oldRes = oldState.resources || {};
+    oldState.resources = {
+      wood:   oldRes.material || 0,
+      stone:  0,
+      food:   0,
+      fabric: oldRes.goods   || 0,
+    };
+    // ideas entfallen – in research.progress umrechnen (grobe Annäherung)
+    oldState.research = {
+      progress: Math.min(100, (oldRes.ideas || 0) * 5),
+      unlocked: [],
+    };
+    // Aktivitäten: alte Output-Keys migrieren
+    if (Array.isArray(oldState.activities)) {
+      for (const act of oldState.activities) {
+        if (act.output) {
+          if ('material' in act.output) { act.output.wood = act.output.material; delete act.output.material; }
+          if ('goods'    in act.output) { act.output.fabric = act.output.goods;  delete act.output.goods;    }
+          if ('ideas'    in act.output) { delete act.output.ideas; }
+        }
+        // Alte Aktivitäts-IDs umbiegen
+        if (act.id === 'gather_material') act.id = 'gather_wood';
+        if (act.id === 'think')           act.id = 'research';
+        if (act.id === 'craft')           act.id = 'weave';
+      }
+    }
+    oldState.version = 2;
+  }
+
+  // Verschachtelte Objekte sicher mergen
+  const merged = { ...fresh, ...oldState, version: CURRENT_VERSION };
   merged.resources = { ...fresh.resources, ...oldState.resources };
-  merged.gacha = { ...fresh.gacha, ...oldState.gacha };
-  merged.house = { ...fresh.house, ...oldState.house };
-  merged.settings = { ...fresh.settings, ...oldState.settings };
+  merged.research  = { ...fresh.research,  ...oldState.research  };
+  merged.gacha     = { ...fresh.gacha,     ...oldState.gacha     };
+  merged.house     = { ...fresh.house,     ...oldState.house     };
+  merged.settings  = { ...fresh.settings,  ...oldState.settings  };
 
   return merged;
 }

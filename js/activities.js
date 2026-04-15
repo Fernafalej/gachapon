@@ -114,6 +114,8 @@ export function formatRate(perSec) {
  */
 export function applyTick(state, dt = 1) {
   for (const activity of state.activities) {
+    const def = activityMap[activity.id];
+    if (def?.type === 'countdown') continue; // countdown-Jobs ticken nicht
     if (!activity.output || activity.workers.length === 0) continue;
     const rate = getOutputRate(activity);
     if (!activity._acc) activity._acc = {};
@@ -144,8 +146,10 @@ export function applyOfflineProgress(state) {
   for (let i = state.activities.length - 1; i >= 0; i--) {
     const activity = state.activities[i];
     if (activity.workers.length === 0) continue;
+    const def = activityMap[activity.id];
 
-    if (activity.output) {
+    if (def?.type !== 'countdown' && activity.output) {
+      // Permanent-Job: rate × delta
       const earned = {};
       for (const [key, perSec] of Object.entries(getOutputRate(activity))) {
         const amount = Math.floor(perSec * delta);
@@ -165,6 +169,14 @@ export function applyOfflineProgress(state) {
         completions.push({ type: 'room_built', rooms: state.house.rooms });
         state.activities.splice(i, 1);
       }
+    } else if (activity.unlocks === 'research_progress') {
+      activity.elapsed = (activity.elapsed || 0) + delta;
+      if (activity.elapsed >= activity.duration) {
+        if (!state.research) state.research = { progress: 0, unlocked: [] };
+        state.research.progress = Math.min(100, (state.research.progress || 0) + 25);
+        completions.push({ type: 'research_progress', progress: state.research.progress });
+        state.activities.splice(i, 1);
+      }
     }
   }
 
@@ -176,17 +188,22 @@ export function applyOfflineProgress(state) {
 // Live-Checks (nur noch room_slot)
 // ---------------------------------------------------------------------------
 
-/** Ressourcen laufen über applyTick – hier nur noch Zimmer-Bau prüfen. */
 export function checkCompletions(state) {
   const now = Math.floor(Date.now() / 1000);
   const completions = [];
   for (let i = state.activities.length - 1; i >= 0; i--) {
     const activity = state.activities[i];
-    if (activity.unlocks !== 'room_slot') continue;
+    if (activity.unlocks !== 'room_slot' && activity.unlocks !== 'research_progress') continue;
     const elapsed = (now - activity.started) + (activity.elapsed || 0);
     if (elapsed >= activity.duration) {
-      state.house.rooms = (state.house.rooms || 1) + 1;
-      completions.push({ type: 'room_built', rooms: state.house.rooms });
+      if (activity.unlocks === 'room_slot') {
+        state.house.rooms = (state.house.rooms || 1) + 1;
+        completions.push({ type: 'room_built', rooms: state.house.rooms });
+      } else if (activity.unlocks === 'research_progress') {
+        if (!state.research) state.research = { progress: 0, unlocked: [] };
+        state.research.progress = Math.min(100, (state.research.progress || 0) + 25);
+        completions.push({ type: 'research_progress', progress: state.research.progress });
+      }
       state.activities.splice(i, 1);
     }
   }

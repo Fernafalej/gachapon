@@ -90,14 +90,6 @@ html, body {
   text-align: right;
 }
 
-.resource-rate {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--green);
-  letter-spacing: -0.2px;
-  opacity: 0.9;
-}
-
 /* ---- Screens ---- */
 #screens {
   flex: 1;
@@ -1650,13 +1642,6 @@ html, body {
 }
 
 /* Furniture Placement Modal */
-.furniture-tile-hint {
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 12px;
-}
-
 .furniture-grid {
   display: flex;
   flex-direction: column;
@@ -1671,11 +1656,12 @@ html, body {
   padding: 12px;
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .furniture-option.furniture-no-fit {
-  opacity: 0.3;
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 .furniture-option canvas {
@@ -1684,51 +1670,33 @@ html, body {
   flex-shrink: 0;
 }
 
-.furniture-option-info {
-  flex: 1;
-  min-width: 0;
-}
-
 .furniture-name {
   font-weight: 700;
   font-size: 14px;
-  margin-bottom: 2px;
-}
-
-.furniture-size {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .furniture-actions {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
 }
 
 .furniture-buy-btn,
-.furniture-unlock-btn,
 .furniture-craft-btn {
   border: none;
   border-radius: 8px;
-  padding: 7px 10px;
+  padding: 6px 10px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
-  text-align: center;
-  flex: 1;
-  min-width: 0;
+  transition: opacity 0.15s;
+  text-align: left;
 }
 
 .furniture-buy-btn {
   background: var(--green-light);
-  color: var(--text);
-}
-
-.furniture-unlock-btn {
-  background: var(--gold-light);
   color: var(--text);
 }
 
@@ -1737,34 +1705,15 @@ html, body {
   color: var(--text);
 }
 
-.btn-too-poor {
-  opacity: 0.45;
+.furniture-buy-btn.disabled,
+.furniture-craft-btn.disabled {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
-.furniture-buy-btn:disabled,
-.furniture-unlock-btn:disabled,
-.furniture-craft-btn:disabled {
-  opacity: 0.2;
-  cursor: default;
-}
-
-.furniture-buy-btn:active:not(:disabled):not(.btn-too-poor),
-.furniture-unlock-btn:active:not(:disabled):not(.btn-too-poor),
-.furniture-craft-btn:active:not(:disabled):not(.btn-too-poor) {
-  transform: scale(0.95);
-}
-
-/* Shake animation for insufficient resources */
-.btn-shake {
-  animation: btnShake 0.35s ease;
-}
-
-@keyframes btnShake {
-  0%, 100% { transform: translateX(0); }
-  20%  { transform: translateX(-4px); }
-  40%  { transform: translateX(4px); }
-  60%  { transform: translateX(-3px); }
-  80%  { transform: translateX(2px); }
+.furniture-buy-btn:active,
+.furniture-craft-btn:active {
+  opacity: 0.7;
 }
 
 /* Furniture Manage Modal */

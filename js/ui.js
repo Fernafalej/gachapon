@@ -99,15 +99,19 @@ export function showConfirm(message, onConfirm) {
 
 // ---- Resource Bar ----
 
+const RES_IDS = {
+  wood:   'res-wood',
+  stone:  'res-stone',
+  food:   'res-food',
+  fabric: 'res-fabric',
+};
+
 export function updateResourceBar() {
   const state = getState();
   if (!state) return;
 
-  const mat = document.querySelector('#res-material .resource-value');
-  const ideas = document.querySelector('#res-ideas .resource-value');
-  const goods = document.querySelector('#res-goods .resource-value');
-
-  if (mat) mat.textContent = state.resources.material;
-  if (ideas) ideas.textContent = state.resources.ideas;
-  if (goods) goods.textContent = state.resources.goods;
+  for (const [key, elId] of Object.entries(RES_IDS)) {
+    const el = document.querySelector(`#${elId} .resource-value`);
+    if (el) el.textContent = Math.floor(state.resources[key] || 0);
+  }
 }
