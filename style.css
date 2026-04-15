@@ -342,6 +342,8 @@ html, body {
   justify-content: center;
   min-height: 200px;
   width: 100%;
+  position: relative;
+  overflow: hidden;
 }
 
 #gacha-machine {
@@ -365,26 +367,258 @@ html, body {
 .capsule.rare        { background: linear-gradient(135deg, #A8CCF0, #6B9FD4); }
 .capsule.super_rare  { background: linear-gradient(135deg, #FFE680, #E8B830); }
 
-.capsule.wobble {
-  animation: capsuleWobble 0.6s ease-in-out;
+/* Phase 0: Münze */
+.gacha-coin {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px solid #D4A840;
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  transform: translateX(-50%);
+  animation: coinDrop 0.45s cubic-bezier(0.4, 0, 1, 1) forwards;
+  box-shadow: 0 2px 8px rgba(212,168,64,0.4);
+  z-index: 2;
 }
 
+@keyframes coinDrop {
+  0%   { top: -30px; opacity: 1; }
+  70%  { top: 50%; opacity: 1; }
+  85%  { top: 46%; }
+  100% { top: 50%; opacity: 0; transform: translateX(-50%) scale(0.5); }
+}
+
+/* Phase 1: Machine Shake */
+.machine-shake {
+  animation: machineShake 0.4s ease;
+}
+
+@keyframes machineShake {
+  0%, 100% { transform: translateX(0); }
+  20%  { transform: translateX(-3px); }
+  40%  { transform: translateX(3px); }
+  60%  { transform: translateX(-2px); }
+  80%  { transform: translateX(2px); }
+}
+
+/* Capsule drop from top */
+.capsule-drop {
+  animation: capsuleDrop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes capsuleDrop {
+  0%   { transform: translate(-50%, -200%) scale(0.6); opacity: 0; }
+  60%  { transform: translate(-50%, -40%) scale(1.05); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+/* Capsule glow for rare+ */
+.capsule-glow {
+  box-shadow: 0 0 20px rgba(107, 159, 212, 0.5);
+}
+
+.capsule-glow.super_rare {
+  box-shadow: 0 0 25px rgba(232, 184, 48, 0.6);
+}
+
+/* Phase 2: Extended wobble */
+.wobble-long {
+  animation: wobbleLong 1.2s ease-in-out infinite;
+}
+
+@keyframes wobbleLong {
+  0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+  15%  { transform: translate(-50%, -50%) rotate(-10deg) scale(1.03); }
+  30%  { transform: translate(-50%, -50%) rotate(8deg); }
+  45%  { transform: translate(-50%, -50%) rotate(-12deg) scale(1.05); }
+  60%  { transform: translate(-50%, -50%) rotate(10deg); }
+  75%  { transform: translate(-50%, -50%) rotate(-6deg) scale(1.02); }
+  90%  { transform: translate(-50%, -50%) rotate(3deg); }
+}
+
+/* Phase 2b: Super Rare charge-up */
+.capsule-charge {
+  animation: capsuleCharge 0.7s ease forwards;
+}
+
+@keyframes capsuleCharge {
+  0%   { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 20px rgba(232, 184, 48, 0.4); }
+  50%  { transform: translate(-50%, -50%) scale(0.85); box-shadow: 0 0 40px rgba(232, 184, 48, 0.8); }
+  100% { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 50px rgba(255, 215, 0, 1); }
+}
+
+/* Screen flash for super rare */
+.screen-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  animation: screenFlash 0.5s ease forwards;
+}
+
+.screen-flash.gold {
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.35), transparent 70%);
+}
+
+@keyframes screenFlash {
+  0%   { opacity: 0; }
+  30%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Phase 3: Burst */
 .capsule.burst {
   animation: capsuleBurst 0.5s ease forwards;
 }
 
-@keyframes capsuleWobble {
-  0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
-  25%      { transform: translate(-50%, -50%) rotate(-8deg); }
-  75%      { transform: translate(-50%, -50%) rotate(8deg); }
-}
-
 @keyframes capsuleBurst {
   0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  50%  { transform: translate(-50%, -50%) scale(1.4); opacity: 0.6; }
-  100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+  40%  { transform: translate(-50%, -50%) scale(1.5); opacity: 0.7; }
+  100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
 }
 
+/* Big rarity flash */
+.rarity-flash-big {
+  position: absolute;
+  inset: -40px;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  animation: rarityFlashBig 1s ease forwards;
+}
+
+.rarity-flash-big.common     { background: radial-gradient(circle, rgba(184,176,168,0.5), transparent 60%); }
+.rarity-flash-big.rare        { background: radial-gradient(circle, rgba(107,159,212,0.6), transparent 60%); }
+.rarity-flash-big.super_rare  { background: radial-gradient(circle, rgba(255,215,0,0.7), transparent 55%); }
+
+@keyframes rarityFlashBig {
+  0%   { opacity: 0; transform: scale(0.3); }
+  25%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(2); }
+}
+
+/* Particles */
+.gacha-particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 8;
+  animation: particleFly 0.8s cubic-bezier(0.2, 0, 0.3, 1) forwards;
+}
+
+@keyframes particleFly {
+  0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--px)), calc(-50% + var(--py))) scale(0); opacity: 0; }
+}
+
+/* ---- Reveal Result ---- */
+.gacha-result-reveal {
+  position: relative;
+  text-align: center;
+}
+
+/* Glow ring behind character */
+.reveal-glow {
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -65%);
+  animation: revealGlowPulse 2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.reveal-glow.common     { background: radial-gradient(circle, rgba(184,176,168,0.2), transparent 70%); }
+.reveal-glow.rare        { background: radial-gradient(circle, rgba(107,159,212,0.3), transparent 70%); }
+.reveal-glow.super_rare  { background: radial-gradient(circle, rgba(255,215,0,0.35), transparent 65%); }
+
+@keyframes revealGlowPulse {
+  0%, 100% { transform: translate(-50%, -65%) scale(1); opacity: 0.8; }
+  50%      { transform: translate(-50%, -65%) scale(1.15); opacity: 1; }
+}
+
+/* Character canvas entrance */
+.reveal-canvas {
+  width: 120px;
+  height: 120px;
+  display: block;
+  margin: 0 auto 8px;
+  position: relative;
+  z-index: 1;
+  animation: revealBounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes revealBounceIn {
+  0%   { transform: scale(0); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  80%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+/* Text slide-up */
+.reveal-slide-up {
+  animation: revealSlideUp 0.4s ease forwards;
+  animation-delay: 0.2s;
+  opacity: 0;
+}
+
+@keyframes revealSlideUp {
+  0%   { transform: translateY(12px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Badge pop */
+.reveal-pop {
+  animation: revealPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: 0.4s;
+  transform: scale(0);
+}
+
+@keyframes revealPop {
+  0%   { transform: scale(0); }
+  70%  { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+/* Rarity label colors */
+.rarity-label-common     { color: var(--common-color); font-size: 14px; font-weight: 700; margin-top: 2px; }
+.rarity-label-rare        { color: var(--rare-color); font-size: 14px; font-weight: 700; margin-top: 2px; }
+.rarity-label-super_rare  { color: var(--super-rare-color); font-size: 15px; font-weight: 800; margin-top: 2px; }
+
+/* Super Rare sparkles */
+.reveal-sparkles {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -65%);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.reveal-sparkle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: var(--gold);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--gold);
+  animation: sparkleOrbit 1.6s ease-in-out infinite;
+}
+
+@keyframes sparkleOrbit {
+  0%, 100% { transform: translate(var(--sx), var(--sy)) scale(1); opacity: 1; }
+  50%      { transform: translate(calc(var(--sx) * 1.2), calc(var(--sy) * 1.2)) scale(0.4); opacity: 0.4; }
+}
+
+/* Keep old simple classes for backwards compat */
 .rarity-flash {
   position: absolute;
   inset: 0;
@@ -406,27 +640,40 @@ html, body {
 
 #gacha-result {
   text-align: center;
+  position: relative;
 }
 
-#gacha-result canvas {
-  width: 96px;
-  height: 96px;
-  margin-bottom: 8px;
+#gacha-result .reveal-canvas {
+  width: 200px;
+  height: 200px;
+  margin: 0 auto 12px;
+  display: block;
+  animation: revealPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes revealPop {
+  0%   { transform: scale(0); opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 #gacha-result .result-name {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
+  position: relative;
+  z-index: 1;
 }
 
 #gacha-result .result-badge {
   display: inline-block;
-  margin-top: 6px;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 13px;
+  margin-top: 8px;
+  padding: 6px 16px;
+  border-radius: 14px;
+  font-size: 15px;
   font-weight: 700;
   color: white;
+  position: relative;
+  z-index: 1;
 }
 
 .result-badge.badge-new    { background: var(--green); }
@@ -1007,8 +1254,8 @@ html, body {
 }
 
 .multi-draw-card canvas {
-  width: 64px;
-  height: 64px;
+  width: 100px;
+  height: 100px;
   display: block;
   margin: 0 auto 4px;
 }
