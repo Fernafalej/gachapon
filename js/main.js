@@ -10,6 +10,11 @@ import {
   getRemainingTime, getProgress, formatTime
 } from './activities.js';
 import { allFurniture } from '../data/furniture/index.js';
+import {
+  sfxCoin, sfxRattle, sfxWobble, sfxCharge, sfxBurst,
+  sfxRevealCommon, sfxRevealRare, sfxRevealSuperRare,
+  sfxNewChar, sfxLevelUp, sfxTap
+} from './sfx.js';
 
 // ---- Möbel-Lookup ----
 const furnitureMap = {};
@@ -276,12 +281,15 @@ function performDraw(isFreeRoll) {
   gachaAnimating = true;
   updateGachaUI();
 
+  const screen = document.getElementById('screen-gacha');
   const stage = document.getElementById('gacha-stage');
   const machine = document.getElementById('gacha-machine');
   const result = document.getElementById('gacha-result');
 
   result.classList.add('hidden');
+  result.innerHTML = '';
   machine.innerHTML = '';
+  machine.className = '';
 
   // Ziehung durchführen
   let drawnChar;
@@ -299,38 +307,153 @@ function performDraw(isFreeRoll) {
   const drawResult = processDrawResult(getState(), drawnChar);
   saveState(getState());
 
-  // Phase 1: Kapsel erscheint
-  const capsule = document.createElement('div');
-  capsule.className = `capsule ${drawnChar.rarity}`;
-  machine.appendChild(capsule);
+  const rarity = drawnChar.rarity;
+  const isSuper = rarity === 'super_rare';
+  const isRare = rarity === 'rare';
 
-  // Phase 2: Wackeln (nach kurzer Pause)
+  // Phase 0: Münze fällt ein
+  sfxCoin();
+  const coin = document.createElement('div');
+  coin.className = 'gacha-coin';
+  machine.appendChild(coin);
+
+  // Phase 1: Maschine wackelt, Kapsel erscheint
   setTimeout(() => {
-    capsule.classList.add('wobble');
-  }, 300);
+    coin.remove();
+    machine.classList.add('machine-shake');
+    sfxRattle();
 
-  // Phase 3: Aufplatzen
+    const capsule = document.createElement('div');
+    capsule.className = `capsule ${rarity} capsule-drop`;
+    capsule.id = 'active-capsule';
+    machine.appendChild(capsule);
+
+    if (isRare || isSuper) capsule.classList.add('capsule-glow');
+  }, 500);
+
+  // Phase 2: Wobble
   setTimeout(() => {
-    capsule.classList.remove('wobble');
-    capsule.classList.add('burst');
+    machine.classList.remove('machine-shake');
+    sfxWobble();
+    const capsule = document.getElementById('active-capsule');
+    if (capsule) capsule.classList.add('wobble-long');
+  }, 1100);
 
-    // Rarity Flash
+  // Phase 2b: Super Rare charge-up
+  const extraDelay = isSuper ? 800 : 0;
+  if (isSuper) {
+    setTimeout(() => {
+      sfxCharge();
+      const capsule = document.getElementById('active-capsule');
+      if (capsule) {
+        capsule.classList.remove('wobble-long');
+        capsule.classList.add('capsule-charge');
+      }
+      const screenFlash = document.createElement('div');
+      screenFlash.className = 'screen-flash gold';
+      stage.appendChild(screenFlash);
+      setTimeout(() => screenFlash.remove(), 600);
+    }, 2400);
+  }
+
+  // Phase 3: Burst!
+  setTimeout(() => {
+    sfxBurst(rarity);
+    const capsule = document.getElementById('active-capsule');
+    if (capsule) {
+      capsule.classList.remove('wobble-long', 'capsule-charge');
+      capsule.classList.add('burst');
+    }
+
     const flash = document.createElement('div');
-    flash.className = `rarity-flash ${drawnChar.rarity}`;
+    flash.className = `rarity-flash-big ${rarity}`;
     stage.appendChild(flash);
-    setTimeout(() => flash.remove(), 900);
-  }, 1000);
+    setTimeout(() => flash.remove(), 1200);
 
-  // Phase 4: Ergebnis anzeigen
+    spawnParticles(stage, rarity, isSuper ? 20 : isRare ? 12 : 6);
+  }, 2400 + extraDelay);
+
+  // Phase 4: Full-Screen Character Reveal
   setTimeout(() => {
     machine.innerHTML = '';
-    showDrawResult(drawnChar, drawResult);
-    gachaAnimating = false;
-    updateGachaUI();
-    updateResourceBar();
-    // Raum aktualisieren wenn neue Figur
-    if (drawResult.type === 'new') setupRoom();
-  }, 1600);
+    machine.className = '';
+
+    // Gacha-Chrome ausblenden, Reveal übernimmt den ganzen Screen
+    screen.classList.add('revealing');
+    showDrawResult(drawnChar, drawResult, rarity);
+
+    // Sound je nach Rarity + Ergebnis
+    if (isSuper) sfxRevealSuperRare();
+    else if (isRare) sfxRevealRare();
+    else sfxRevealCommon();
+
+    if (drawResult.type === 'new') {
+      setTimeout(() => sfxNewChar(), 100);
+    } else if (drawResult.type === 'levelup') {
+      setTimeout(() => sfxLevelUp(), 100);
+    }
+  }, 3200 + extraDelay);
+}
+
+/** Reveal schließen */
+function dismissReveal() {
+  const screen = document.getElementById('screen-gacha');
+  const result = document.getElementById('gacha-result');
+  screen.classList.remove('revealing');
+  result.classList.add('hidden');
+  result.innerHTML = '';
+  result.className = '';
+  gachaAnimating = false;
+  updateGachaUI();
+  updateResourceBar();
+  renderGachaMachine();
+}
+
+/** Partikel-Effekt beim Aufplatzen */
+function spawnParticles(container, rarity, count) {
+  const colors = {
+    common: ['#D8D0C8', '#B8B0A8', '#C8C0B8'],
+    rare: ['#A8CCF0', '#6B9FD4', '#88BBE8', '#FFFFFF'],
+    super_rare: ['#FFE680', '#E8B830', '#FFF0A0', '#FFD700', '#FFFFFF'],
+  };
+  const palette = colors[rarity] || colors.common;
+
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('div');
+    p.className = 'gacha-particle';
+    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+    const dist = 60 + Math.random() * 80;
+    const size = 4 + Math.random() * 6;
+    p.style.setProperty('--px', `${Math.cos(angle) * dist}px`);
+    p.style.setProperty('--py', `${Math.sin(angle) * dist}px`);
+    p.style.width = size + 'px';
+    p.style.height = size + 'px';
+    p.style.background = palette[Math.floor(Math.random() * palette.length)];
+    p.style.animationDelay = `${Math.random() * 0.15}s`;
+    p.style.left = '50%';
+    p.style.top = '50%';
+    container.appendChild(p);
+    setTimeout(() => p.remove(), 1000);
+  }
+}
+
+/** Konfetti-Regen für neue Figuren / Level-Up */
+function spawnConfetti(container, colorSet, count) {
+  for (let i = 0; i < count; i++) {
+    const c = document.createElement('div');
+    c.className = 'confetti';
+    c.style.left = `${10 + Math.random() * 80}%`;
+    c.style.background = colorSet[Math.floor(Math.random() * colorSet.length)];
+    c.style.animationDelay = `${Math.random() * 1.2}s`;
+    c.style.animationDuration = `${1.5 + Math.random() * 1}s`;
+    const size = 5 + Math.random() * 5;
+    c.style.width = size + 'px';
+    c.style.height = size * (0.6 + Math.random() * 0.8) + 'px';
+    c.style.setProperty('--drift', `${(Math.random() - 0.5) * 60}px`);
+    c.style.setProperty('--spin', `${Math.random() * 720 - 360}deg`);
+    container.appendChild(c);
+    setTimeout(() => c.remove(), 3000);
+  }
 }
 
 function performMultiDraw() {
@@ -348,57 +471,133 @@ function performMultiDraw() {
   });
   saveState(getState());
 
-  // Multi-Draw Ergebnis als Modal
+  sfxRevealRare();
   showMultiDrawResult(results);
   gachaAnimating = false;
   updateGachaUI();
   updateResourceBar();
-
-  // Prüfen ob neue Figuren dabei → Raum neu aufbauen
   if (results.some(r => r.result.type === 'new')) setupRoom();
 }
 
-function showDrawResult(char, result) {
+/** Full-Screen Character Reveal */
+function showDrawResult(char, drawResult, rarity) {
   const el = document.getElementById('gacha-result');
   el.classList.remove('hidden');
   el.innerHTML = '';
+  el.className = `gacha-reveal-fullscreen ${rarity}`;
 
-  // Mini-Canvas mit Figur
-  const miniCanvas = document.createElement('canvas');
-  miniCanvas.width = 96;
-  miniCanvas.height = 96;
-  const mCtx = miniCanvas.getContext('2d');
+  const isNew = drawResult.type === 'new';
+  const isLevelUp = drawResult.type === 'levelup';
+  const isSpecial = isNew || isLevelUp;
+
+  // Hintergrund-Glow
+  const bg = document.createElement('div');
+  bg.className = `reveal-bg ${rarity}`;
+  el.appendChild(bg);
+
+  // Zentrierter Content-Container
+  const content = document.createElement('div');
+  content.className = 'reveal-content';
+  el.appendChild(content);
+
+  // Glow-Ring hinter der Figur
+  const glowRing = document.createElement('div');
+  glowRing.className = `reveal-glow ${rarity}${isSpecial ? ' reveal-glow-special' : ''}`;
+  content.appendChild(glowRing);
+
+  // Großer Canvas – Figur richtig groß und zentriert
+  const canvasSize = 320;
+  const scale = 4.5;
+  const revealCanvas = document.createElement('canvas');
+  revealCanvas.width = canvasSize;
+  revealCanvas.height = canvasSize;
+  revealCanvas.className = `reveal-canvas${isSpecial ? ' reveal-canvas-special' : ''}`;
+  const rCtx = revealCanvas.getContext('2d');
+  rCtx.save();
+  rCtx.translate(canvasSize / 2, canvasSize / 2);
+  rCtx.scale(scale, scale);
   const specDraw = getSpeciesDraw(char.species);
-  if (specDraw) specDraw.idle(mCtx, 48, 78, performance.now() / 1000, char.palette);
-  el.appendChild(miniCanvas);
+  if (specDraw) specDraw.idle(rCtx, 0, 14, performance.now() / 1000, char.palette);
+  rCtx.restore();
+  content.appendChild(revealCanvas);
 
+  // Name
   const name = document.createElement('div');
-  name.className = 'result-name';
+  name.className = 'reveal-name reveal-slide-up';
   name.textContent = char.name;
-  el.appendChild(name);
+  content.appendChild(name);
 
+  // Seltenheits-Label
   const rarityLabel = document.createElement('div');
-  rarityLabel.className = 'result-rarity';
-  const rarityNames = { common: 'Common', rare: 'Rare', super_rare: 'Super Rare' };
-  rarityLabel.textContent = rarityNames[char.rarity];
-  rarityLabel.style.color = `var(--${char.rarity.replace('_', '-')}-color)`;
-  rarityLabel.style.fontSize = '13px';
-  rarityLabel.style.fontWeight = '700';
-  rarityLabel.style.marginTop = '4px';
-  el.appendChild(rarityLabel);
+  rarityLabel.className = `reveal-rarity reveal-slide-up rarity-label-${rarity}`;
+  const rarityNames = { common: 'Common', rare: '★ Rare', super_rare: '★★ Super Rare' };
+  rarityLabel.textContent = rarityNames[rarity];
+  content.appendChild(rarityLabel);
 
+  // Ergebnis-Badge
   const badge = document.createElement('div');
-  if (result.type === 'new') {
-    badge.className = 'result-badge badge-new';
-    badge.textContent = '✨ Neu!';
-  } else if (result.type === 'levelup') {
-    badge.className = 'result-badge badge-levelup';
-    badge.textContent = `⬆ Level ${result.newLevel}!`;
+  if (isNew) {
+    badge.className = 'reveal-badge badge-new reveal-pop';
+    badge.textContent = '✨ Neu entdeckt!';
+  } else if (isLevelUp) {
+    badge.className = 'reveal-badge badge-levelup reveal-pop';
+    badge.textContent = `⬆ Level ${drawResult.newLevel}!`;
   } else {
-    badge.className = 'result-badge badge-shard';
-    badge.textContent = `+1 Scherbe (${result.shards}/${getState().collection[char.id].level})`;
+    badge.className = 'reveal-badge badge-shard reveal-pop';
+    badge.textContent = `+1 Scherbe (${drawResult.shards}/${getState().collection[char.id].level})`;
   }
-  el.appendChild(badge);
+  content.appendChild(badge);
+
+  // Super Rare: Sparkles
+  if (rarity === 'super_rare') {
+    const sparkles = document.createElement('div');
+    sparkles.className = 'reveal-sparkles';
+    for (let i = 0; i < 10; i++) {
+      const s = document.createElement('div');
+      s.className = 'reveal-sparkle';
+      s.style.animationDelay = `${i * 0.16}s`;
+      const angle = (Math.PI * 2 * i) / 10;
+      const r = 70 + Math.random() * 15;
+      s.style.setProperty('--sx', `${Math.cos(angle) * r}px`);
+      s.style.setProperty('--sy', `${Math.sin(angle) * r}px`);
+      sparkles.appendChild(s);
+    }
+    content.appendChild(sparkles);
+  }
+
+  // Neue Figur → Konfetti!
+  if (isNew) {
+    const confettiColors = {
+      common: ['#D8D0C8', '#C8C0B8', '#B8B0A8', '#F2A7B0'],
+      rare: ['#A8CCF0', '#6B9FD4', '#88BBE8', '#F2A7B0', '#FFFFFF'],
+      super_rare: ['#FFE680', '#E8B830', '#FFD700', '#F2A7B0', '#FFFFFF', '#A8D8A8'],
+    };
+    setTimeout(() => spawnConfetti(el, confettiColors[rarity] || confettiColors.common, 35), 200);
+  }
+
+  // Level-Up → goldene Partikel
+  if (isLevelUp) {
+    setTimeout(() => spawnConfetti(el, ['#FFE680', '#E8B830', '#FFD700', '#FFF0A0'], 20), 200);
+  }
+
+  // "Antippen" Hinweis
+  const hint = document.createElement('div');
+  hint.className = 'reveal-hint reveal-slide-up';
+  hint.textContent = 'Antippen zum Weitermachen';
+  el.appendChild(hint);
+
+  // Tap to dismiss
+  let canDismiss = false;
+  setTimeout(() => { canDismiss = true; }, 600);
+
+  const dismiss = () => {
+    if (!canDismiss) return;
+    sfxTap();
+    if (isNew) setupRoom();
+    dismissReveal();
+    el.removeEventListener('click', dismiss);
+  };
+  el.addEventListener('click', dismiss);
 }
 
 function showMultiDrawResult(results) {
@@ -415,7 +614,7 @@ function showMultiDrawResult(results) {
     const badgeText = result.type === 'new' ? 'Neu!' : result.type === 'levelup' ? `Lv.${result.newLevel}` : '+1💎';
     html += `
       <div class="multi-draw-card rarity-border-${char.rarity}">
-        <canvas width="64" height="64" data-species="${char.species}" data-palette='${JSON.stringify(char.palette)}'></canvas>
+        <canvas width="120" height="120" data-species="${char.species}" data-palette='${JSON.stringify(char.palette)}'></canvas>
         <div class="char-name">${char.name}</div>
         <span class="result-badge-sm ${badgeClass}">${badgeText}</span>
       </div>
@@ -425,13 +624,19 @@ function showMultiDrawResult(results) {
   html += '</div>';
   openModal(html);
 
-  // Figuren in die Mini-Canvases zeichnen
+  // Figuren in die Canvases zeichnen – skaliert für bessere Sichtbarkeit
   document.querySelectorAll('.multi-draw-card canvas').forEach(c => {
     const mCtx = c.getContext('2d');
     const species = c.dataset.species;
     const palette = JSON.parse(c.dataset.palette);
     const specDraw = getSpeciesDraw(species);
-    if (specDraw) specDraw.idle(mCtx, 32, 52, performance.now() / 1000, palette);
+    if (specDraw) {
+      mCtx.save();
+      mCtx.translate(60, 60);
+      mCtx.scale(1.8, 1.8);
+      specDraw.idle(mCtx, 0, 14, performance.now() / 1000, palette);
+      mCtx.restore();
+    }
   });
 }
 

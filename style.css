@@ -514,89 +514,201 @@ html, body {
   100% { transform: translate(calc(-50% + var(--px)), calc(-50% + var(--py))) scale(0); opacity: 0; }
 }
 
-/* ---- Reveal Result ---- */
-.gacha-result-reveal {
+/* ---- Full-Screen Reveal ---- */
+
+/* Hide gacha chrome during reveal */
+#screen-gacha.revealing #gacha-token-display,
+#screen-gacha.revealing #gacha-controls,
+#screen-gacha.revealing #gacha-info,
+#screen-gacha.revealing #gacha-stage {
+  display: none !important;
+}
+
+/* Reveal takes over the entire screen */
+.gacha-reveal-fullscreen {
+  position: absolute !important;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* Gradient background */
+.reveal-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  animation: revealBgIn 0.5s ease forwards;
+}
+
+.reveal-bg.common     { background: radial-gradient(ellipse at 50% 40%, rgba(184,176,168,0.15), var(--bg) 70%); }
+.reveal-bg.rare        { background: radial-gradient(ellipse at 50% 40%, rgba(107,159,212,0.2), var(--bg) 70%); }
+.reveal-bg.super_rare  { background: radial-gradient(ellipse at 50% 40%, rgba(255,215,0,0.25), var(--bg) 65%); }
+
+@keyframes revealBgIn {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Centered content container */
+.reveal-content {
   position: relative;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1;
 }
 
 /* Glow ring behind character */
 .reveal-glow {
   position: absolute;
-  width: 160px;
-  height: 160px;
+  width: 180px;
+  height: 180px;
   border-radius: 50%;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -65%);
+  transform: translate(-50%, -60%);
   animation: revealGlowPulse 2s ease-in-out infinite;
   pointer-events: none;
   z-index: 0;
 }
 
 .reveal-glow.common     { background: radial-gradient(circle, rgba(184,176,168,0.2), transparent 70%); }
-.reveal-glow.rare        { background: radial-gradient(circle, rgba(107,159,212,0.3), transparent 70%); }
-.reveal-glow.super_rare  { background: radial-gradient(circle, rgba(255,215,0,0.35), transparent 65%); }
+.reveal-glow.rare        { background: radial-gradient(circle, rgba(107,159,212,0.3), transparent 65%); }
+.reveal-glow.super_rare  { background: radial-gradient(circle, rgba(255,215,0,0.4), transparent 60%); }
 
-@keyframes revealGlowPulse {
-  0%, 100% { transform: translate(-50%, -65%) scale(1); opacity: 0.8; }
-  50%      { transform: translate(-50%, -65%) scale(1.15); opacity: 1; }
+/* Bigger glow for new/levelup */
+.reveal-glow-special {
+  width: 220px;
+  height: 220px;
 }
 
-/* Character canvas entrance */
+@keyframes revealGlowPulse {
+  0%, 100% { transform: translate(-50%, -60%) scale(1); opacity: 0.7; }
+  50%      { transform: translate(-50%, -60%) scale(1.2); opacity: 1; }
+}
+
+/* Character canvas – big entrance */
 .reveal-canvas {
-  width: 120px;
-  height: 120px;
+  width: 160px;
+  height: 160px;
   display: block;
-  margin: 0 auto 8px;
   position: relative;
   z-index: 1;
   animation: revealBounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
+/* Even bigger for new/levelup */
+.reveal-canvas-special {
+  width: 190px;
+  height: 190px;
+  animation: revealBounceInBig 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
 @keyframes revealBounceIn {
   0%   { transform: scale(0); opacity: 0; }
-  60%  { transform: scale(1.15); opacity: 1; }
-  80%  { transform: scale(0.95); }
+  50%  { transform: scale(1.2); opacity: 1; }
+  75%  { transform: scale(0.95); }
   100% { transform: scale(1); }
 }
 
-/* Text slide-up */
+@keyframes revealBounceInBig {
+  0%   { transform: scale(0) rotate(-5deg); opacity: 0; }
+  40%  { transform: scale(1.3) rotate(2deg); opacity: 1; }
+  65%  { transform: scale(0.92) rotate(-1deg); }
+  85%  { transform: scale(1.05) rotate(0deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Name */
+.reveal-name {
+  font-size: 26px;
+  font-weight: 800;
+  margin-top: 12px;
+  color: var(--text);
+  position: relative;
+  z-index: 1;
+}
+
+/* Rarity label */
+.reveal-rarity {
+  margin-top: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.rarity-label-common     { color: var(--common-color); font-size: 14px; font-weight: 700; }
+.rarity-label-rare        { color: var(--rare-color); font-size: 15px; font-weight: 700; }
+.rarity-label-super_rare  { color: var(--super-rare-color); font-size: 16px; font-weight: 800; }
+
+/* Badge */
+.reveal-badge {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 8px 20px;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+  position: relative;
+  z-index: 1;
+}
+
+.reveal-badge.badge-new {
+  background: var(--green);
+  font-size: 18px;
+  padding: 10px 24px;
+  box-shadow: 0 4px 16px rgba(168, 216, 168, 0.4);
+}
+
+.reveal-badge.badge-levelup {
+  background: var(--gold);
+  font-size: 18px;
+  padding: 10px 24px;
+  box-shadow: 0 4px 16px rgba(240, 201, 92, 0.4);
+}
+
+.reveal-badge.badge-shard {
+  background: var(--blue);
+  font-size: 14px;
+  padding: 6px 16px;
+}
+
+/* Slide-up animation */
 .reveal-slide-up {
   animation: revealSlideUp 0.4s ease forwards;
-  animation-delay: 0.2s;
+  animation-delay: 0.25s;
   opacity: 0;
 }
 
 @keyframes revealSlideUp {
-  0%   { transform: translateY(12px); opacity: 0; }
+  0%   { transform: translateY(16px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
 }
 
-/* Badge pop */
+/* Pop animation for badges */
 .reveal-pop {
-  animation: revealPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-  animation-delay: 0.4s;
+  animation: revealPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: 0.45s;
   transform: scale(0);
 }
 
 @keyframes revealPop {
   0%   { transform: scale(0); }
-  70%  { transform: scale(1.2); }
+  65%  { transform: scale(1.25); }
   100% { transform: scale(1); }
 }
 
-/* Rarity label colors */
-.rarity-label-common     { color: var(--common-color); font-size: 14px; font-weight: 700; margin-top: 2px; }
-.rarity-label-rare        { color: var(--rare-color); font-size: 14px; font-weight: 700; margin-top: 2px; }
-.rarity-label-super_rare  { color: var(--super-rare-color); font-size: 15px; font-weight: 800; margin-top: 2px; }
-
-/* Super Rare sparkles */
+/* Sparkles for super rare */
 .reveal-sparkles {
   position: absolute;
-  top: 50%;
+  top: 45%;
   left: 50%;
-  transform: translate(-50%, -65%);
+  transform: translate(-50%, -50%);
   width: 0;
   height: 0;
   pointer-events: none;
@@ -609,16 +721,44 @@ html, body {
   height: 6px;
   background: var(--gold);
   border-radius: 50%;
-  box-shadow: 0 0 6px var(--gold);
+  box-shadow: 0 0 8px var(--gold);
   animation: sparkleOrbit 1.6s ease-in-out infinite;
 }
 
 @keyframes sparkleOrbit {
   0%, 100% { transform: translate(var(--sx), var(--sy)) scale(1); opacity: 1; }
-  50%      { transform: translate(calc(var(--sx) * 1.2), calc(var(--sy) * 1.2)) scale(0.4); opacity: 0.4; }
+  50%      { transform: translate(calc(var(--sx) * 1.3), calc(var(--sy) * 1.3)) scale(0.3); opacity: 0.3; }
 }
 
-/* Keep old simple classes for backwards compat */
+/* "Antippen" hint */
+.reveal-hint {
+  position: absolute;
+  bottom: 32px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  animation-delay: 0.8s;
+  z-index: 1;
+}
+
+/* ---- Confetti ---- */
+.confetti {
+  position: absolute;
+  top: -10px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 3;
+  animation: confettiFall var(--duration, 2s) ease-in forwards;
+}
+
+@keyframes confettiFall {
+  0%   { transform: translateY(0) translateX(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(calc(100vh)) translateX(var(--drift, 0px)) rotate(var(--spin, 360deg)); opacity: 0; }
+}
+
+/* Legacy compat */
 .rarity-flash {
   position: absolute;
   inset: 0;
@@ -638,44 +778,7 @@ html, body {
   100% { opacity: 0; transform: scale(1.5); }
 }
 
-#gacha-result {
-  text-align: center;
-  position: relative;
-}
-
-#gacha-result .reveal-canvas {
-  width: 200px;
-  height: 200px;
-  margin: 0 auto 12px;
-  display: block;
-  animation: revealPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-@keyframes revealPop {
-  0%   { transform: scale(0); opacity: 0; }
-  60%  { transform: scale(1.1); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-#gacha-result .result-name {
-  font-size: 22px;
-  font-weight: 800;
-  position: relative;
-  z-index: 1;
-}
-
-#gacha-result .result-badge {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 6px 16px;
-  border-radius: 14px;
-  font-size: 15px;
-  font-weight: 700;
-  color: white;
-  position: relative;
-  z-index: 1;
-}
-
+/* Old result-badge classes still used in multi-draw */
 .result-badge.badge-new    { background: var(--green); }
 .result-badge.badge-levelup { background: var(--gold); }
 .result-badge.badge-shard  { background: var(--blue); }
