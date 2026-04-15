@@ -1,8 +1,8 @@
 // js/main.js – App-Init, Screen-Routing, Gacha + Activity Wiring
 import { initState, getState, mutate, resetState, saveState } from './state.js';
-import { initUI, switchScreen, setOnScreenChange, updateResourceBar, openModal, closeModal, showConfirm } from './ui.js';
+import { initUI, switchScreen, setOnScreenChange, getCurrentScreen, updateResourceBar, openModal, closeModal, showConfirm } from './ui.js';
 import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount, getCharactersByRarity } from './characters.js';
-import { initRoom, updateRoom, renderRoom, initRoomControls, setOnTileTap, setFurniture, findFurnitureAt, GRID } from './room.js';
+import { initRoom, updateRoom, renderRoom, initRoomControls, setOnTileTap, setFurniture, findFurnitureAt, GRID, getSprites, getSpriteScreenPos } from './room.js';
 import { draw, freeRollDraw, processDrawResult, TOKEN_TABLES } from './gacha.js';
 import {
   applyOfflineProgress, checkCompletions, getAllActivityDefs, getActivityDef,
@@ -100,9 +100,16 @@ function setupRoom(roomIndex) {
   if (roomIndex !== undefined) currentRoomIndex = roomIndex;
   const s = getState();
   const collected = Object.keys(s.collection);
+  const busySet = getBusyWorkers(s);
   let chars;
   if (collected.length > 0) {
-    chars = collected.map(id => getCharacter(id)).filter(Boolean);
+    chars = collected
+      .map(id => getCharacter(id))
+      .filter(c => c && !busySet.has(c.id));
+    // Fallback: if everyone is busy, show them all anyway (working pose handled later)
+    if (chars.length === 0) {
+      chars = collected.map(id => getCharacter(id)).filter(Boolean);
+    }
   } else {
     chars = getAllCharacters().slice(0, Math.min(5, getAllCharacters().length));
   }
@@ -945,6 +952,117 @@ function startActivityChecker() {
 }
 
 startActivityChecker();
+
+// ========================================
+// SPRECHBLASEN (Schritt 11)
+// ========================================
+
+// Cooldown-Map: charId → timestamp (ms) der letzten Blase
+const bubbleCooldowns = new Map();
+
+/**
+ * Gibt true zurück, wenn charId noch auf Cooldown ist.
+ */
+function bubbleOnCooldown(charId, now, cooldownMs) {
+  return (now - (bubbleCooldowns.get(charId) || 0)) < cooldownMs;
+}
+
+/**
+ * Erzeugt eine DOM-Sprechblase über dem Sprite.
+ * @param {object} sprite  – Sprite-Objekt aus room.js
+ * @param {string} context – 'idle' | 'meeting' | 'working' | 'levelup'
+ * @param {number} cw      – Canvas CSS-Breite
+ * @param {number} ch      – Canvas CSS-Höhe
+ * @param {number} now     – Date.now()
+ */
+function showBubble(sprite, context, cw, ch, now) {
+  const char = sprite.char;
+  const speech = char.speech?.[context];
+  if (!speech || speech.length === 0) return;
+
+  // Max 1 aktive Blase pro Figur
+  if (document.querySelector(`.speech-bubble[data-char="${char.id}"]`)) return;
+
+  const emoji = speech[Math.floor(Math.random() * speech.length)];
+  const pos = getSpriteScreenPos(sprite.px, sprite.py, cw, ch);
+
+  // Blase ~45px über dem Sprite-Fuß (Kopf ist ca. 50-60% der Höhe über dem Ankerpunkt)
+  const HEAD_OFFSET = 48;
+
+  bubbleCooldowns.set(char.id, now);
+
+  const layer = document.getElementById('speech-bubbles-layer');
+  if (!layer) return;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'speech-bubble';
+  bubble.dataset.char = char.id;
+  bubble.textContent = emoji;
+  bubble.style.left = `${Math.round(pos.x)}px`;
+  bubble.style.top  = `${Math.round(pos.y - HEAD_OFFSET)}px`;
+  layer.appendChild(bubble);
+
+  // Aufräumen nach Animation (bubbleFade: 2.4s → etwas Puffer)
+  setTimeout(() => bubble.remove(), 2600);
+}
+
+/**
+ * Führt den Proximity- und Idle-Check durch.
+ * Wird einmal pro Sekunde aufgerufen.
+ */
+function checkSpeechBubbles() {
+  if (getCurrentScreen() !== 'house') return;
+
+  const sprites = getSprites();
+  if (!sprites.length) return;
+
+  const canvas = document.getElementById('room-canvas');
+  if (!canvas) return;
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const now = Date.now();
+
+  const MEETING_COOLDOWN  = 30_000;  // 30 s zwischen Meeting-Blasen pro Figur
+  const IDLE_COOLDOWN     = 60_000;  // 60 s zwischen Idle-Blasen pro Figur
+  const IDLE_CHANCE       = 0.12;    // 12 % pro Sekunde pro ruhender Figur
+  const PROXIMITY         = 2.0;     // Tiles
+
+  // --- Meeting-Check: alle Sprite-Paare ---
+  // Jedes Paar löst höchstens eine Blase aus (von wem auch immer noch Cooldown-frei ist)
+  const triggeredMeeting = new Set();
+  for (let i = 0; i < sprites.length; i++) {
+    for (let j = i + 1; j < sprites.length; j++) {
+      const a = sprites[i];
+      const b = sprites[j];
+      const dx = a.px - b.px;
+      const dy = a.py - b.py;
+      if (dx * dx + dy * dy > PROXIMITY * PROXIMITY) continue;
+
+      // Wähle die Figur, die noch nicht getriggert wurde und nicht auf Cooldown ist
+      for (const sp of [a, b]) {
+        if (!triggeredMeeting.has(sp.char.id) &&
+            !bubbleOnCooldown(sp.char.id, now, MEETING_COOLDOWN)) {
+          showBubble(sp, 'meeting', cw, ch, now);
+          triggeredMeeting.add(sp.char.id);
+          break;
+        }
+      }
+    }
+  }
+
+  // --- Idle-Blasen (zufällig, nur ruhende Figuren, die keine Meeting-Blase bekommen haben) ---
+  for (const sp of sprites) {
+    if (sp.pose !== 'idle') continue;
+    if (triggeredMeeting.has(sp.char.id)) continue;
+    if (bubbleOnCooldown(sp.char.id, now, IDLE_COOLDOWN)) continue;
+    if (Math.random() < IDLE_CHANCE) {
+      showBubble(sp, 'idle', cw, ch, now);
+    }
+  }
+}
+
+// Starte den Bubble-Checker
+const _bubbleInterval = setInterval(checkSpeechBubbles, 1000);
 
 // ---- Aktivitäts-Zuweisung ----
 document.getElementById('btn-assign-activity').addEventListener('click', () => {

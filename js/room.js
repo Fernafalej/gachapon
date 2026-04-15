@@ -104,6 +104,26 @@ export function getSprites() { return sprites; }
 export function getFurnitureItems() { return furnitureItems; }
 
 /**
+ * Convert a sprite's tile position to DOM coordinates on the speech-bubbles-layer.
+ * Accounts for the camera pan/zoom transform applied in renderRoom().
+ * @param {number} px – sprite tile X (float)
+ * @param {number} py – sprite tile Y (float)
+ * @param {number} canvasW – canvas CSS width in px
+ * @param {number} canvasH – canvas CSS height in px
+ * @returns {{ x: number, y: number }} – CSS left/top for the bubble anchor (sprite feet)
+ */
+export function getSpriteScreenPos(px, py, canvasW, canvasH) {
+  // Pre-camera screen position (same as ws() in renderRoom)
+  const sx = ox + (px - py) * TW / 2;
+  const sy = oy + (px + py) * TH / 2;
+  // Apply the same camera transform used in renderRoom:
+  // translate(w/2+panX, h/2+panY) scale(zoom) translate(-w/2,-h/2)
+  const domX = (sx - canvasW / 2) * cam.zoom + canvasW / 2 + cam.panX;
+  const domY = (sy - canvasH / 2) * cam.zoom + canvasH / 2 + cam.panY;
+  return { x: domX, y: domY };
+}
+
+/**
  * Swap furniture without reinitializing characters.
  */
 export function setFurniture(furniture) {
