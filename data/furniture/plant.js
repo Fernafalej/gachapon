@@ -1,7 +1,7 @@
 export default {
   id: 'plant', name: 'Topfpflanze', size: { w: 1, d: 1 },
-  buy: { cost: { goods: 8 } },
-  craft: { cost: { material: 3, ideas: 1 }, duration: 300, unlock_cost: { ideas: 3 } },
+  buy: { cost: { wood: 2, fabric: 6 } },
+  craft: { cost: { wood: 3, fabric: 1 }, duration: 300 },
   draw(ctx, tx, ty) {
     ctx.fillStyle = '#C87850';
     ctx.beginPath(); ctx.moveTo(tx-6,ty-4); ctx.lineTo(tx+6,ty-4); ctx.lineTo(tx+4,ty+4); ctx.lineTo(tx-4,ty+4); ctx.closePath(); ctx.fill();

@@ -1,7 +1,7 @@
 export default {
   id: 'lamp', name: 'Stehlampe', size: { w: 1, d: 1 },
-  buy: { cost: { goods: 10 } },
-  craft: { cost: { material: 4, ideas: 2 }, duration: 360, unlock_cost: { ideas: 5 } },
+  buy: { cost: { wood: 4, fabric: 6 } },
+  craft: { cost: { wood: 4, fabric: 2 }, duration: 360 },
   draw(ctx, tx, ty) {
     ctx.fillStyle = '#888'; ctx.beginPath(); ctx.ellipse(tx,ty+2,5,2,0,0,Math.PI*2); ctx.fill();
     ctx.fillStyle = '#AAA'; ctx.fillRect(tx-1, ty-20, 2, 22);

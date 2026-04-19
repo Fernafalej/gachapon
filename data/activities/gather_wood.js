@@ -5,10 +5,10 @@ export default {
   type: 'permanent',
   pose: 'hard_work',
   workers: { min: 1, max: 3 },
-  duration_base: 1800,
-  duration_scaling: 'sqrt',
+  duration_base: 300,
+  duration_scaling: 'linear',
   cost: null,
-  output: { wood: 5 },
+  output: { wood: 4 },
   unlocks: null,
   room_penalty: 0,
 };

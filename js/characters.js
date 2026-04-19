@@ -1,10 +1,10 @@
 // js/characters.js – Character-Registry, Species-Loader
-import { allCharacters } from '../data/characters/index.js';
-import bearDraw from '../data/characters/species/bear.js';
-import bunnyDraw from '../data/characters/species/bunny.js';
-import slimeDraw from '../data/characters/species/slime.js';
-import foxDraw from '../data/characters/species/fox.js';
-import dragonDraw from '../data/characters/species/dragon.js';
+import { allCharacters } from '../data/characters/index.js?v=20260419g';
+import bearDraw from '../data/characters/species/bear.js?v=20260419g';
+import bunnyDraw from '../data/characters/species/bunny.js?v=20260419g';
+import slimeDraw from '../data/characters/species/slime.js?v=20260419g';
+import foxDraw from '../data/characters/species/fox.js?v=20260419g';
+import dragonDraw from '../data/characters/species/dragon.js?v=20260419g';
 
 const speciesDrawMap = {
   bear:   bearDraw,

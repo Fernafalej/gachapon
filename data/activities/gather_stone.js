@@ -5,10 +5,10 @@ export default {
   type: 'permanent',
   pose: 'hard_work',
   workers: { min: 1, max: 3 },
-  duration_base: 2400,
-  duration_scaling: 'sqrt',
+  duration_base: 360,
+  duration_scaling: 'linear',
   cost: null,
-  output: { stone: 4 },
+  output: { stone: 3 },
   unlocks: null,
   room_penalty: 0,
 };

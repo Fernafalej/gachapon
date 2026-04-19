@@ -221,6 +221,18 @@ function ws(px, py) {
   return { x: ox + (px - py) * TW / 2, y: oy + (px + py) * TH / 2 };
 }
 
+export function getSpriteScreenPos(px, py, w, h) {
+  const baseOX = Math.floor(w / 2);
+  const baseOY = Math.max(WALL_H + 2, Math.min(h - GRID * TH - 2, Math.floor(h / 2 - 45)));
+  const worldX = baseOX + (px - py) * TW / 2;
+  const worldY = baseOY + (px + py) * TH / 2;
+
+  return {
+    x: (worldX - w / 2) * cam.zoom + (w / 2 + cam.panX),
+    y: (worldY - h / 2) * cam.zoom + (h / 2 + cam.panY),
+  };
+}
+
 // ---- Floor ----
 function drawFloor(ctx) {
   for (let ty = 0; ty < GRID; ty++) {

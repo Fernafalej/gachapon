@@ -5,7 +5,7 @@ export default {
   type: 'countdown',
   pose: 'hard_work',
   workers: { min: 1, max: 4 },
-  duration_base: 3600,
+  duration_base: 900,
   duration_scaling: 'sqrt',
   cost: { wood: 20, stone: 10 },
   output: null,

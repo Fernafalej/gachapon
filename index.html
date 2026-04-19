@@ -6,11 +6,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <title>Gachapon Häuschen</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css?v=20260419g">
 </head>
 <body>
   <div id="app">
-    <!-- Resource Bar -->
     <header id="resource-bar">
       <div class="resource" id="res-wood">
         <span class="resource-icon">🪵</span>
@@ -30,14 +30,21 @@
       </div>
     </header>
 
-    <!-- Screens -->
     <main id="screens">
       <div id="screen-house" class="screen active">
         <canvas id="room-canvas"></canvas>
         <div id="speech-bubbles-layer"></div>
+        <div id="outside-scene" class="outside-scene hidden"></div>
+        <div id="alpha-panel" class="alpha-panel hidden"></div>
+        <button id="btn-alpha-guide" class="alpha-guide-chip hidden" type="button">Guide öffnen</button>
+        <div id="house-view-toggle"></div>
         <div id="room-indicator"></div>
-        <button id="btn-assign-activity" class="fab" aria-label="Tätigkeit zuweisen">⚒️</button>
-        <button id="btn-place-furniture" class="fab fab-secondary" aria-label="Möbel platzieren">🪑</button>
+        <div id="debug-panel" class="debug-panel hidden"></div>
+        <button id="btn-open-menu" class="research-btn menu-btn" aria-label="Spielmenü öffnen">
+          <span class="research-icon">☰</span>
+          <span class="research-label">Menü</span>
+          <span id="research-point-count" class="research-count">0</span>
+        </button>
         <div id="activity-badge" class="badge hidden">✔️</div>
       </div>
 
@@ -107,7 +114,6 @@
       </div>
     </main>
 
-    <!-- Bottom Navigation -->
     <nav id="bottom-nav">
       <button class="nav-tab active" data-screen="house">
         <span class="nav-icon">🏠</span>
@@ -127,12 +133,11 @@
       </button>
     </nav>
 
-    <!-- Modals -->
     <div id="modal-overlay" class="hidden">
       <div id="modal-content"></div>
     </div>
   </div>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/main.js?v=20260419g"></script>
 </body>
 </html>

@@ -1,29 +1,37 @@
-// js/main.js – App-Init, Screen-Routing, Gacha + Activity Wiring
-import { initState, getState, mutate, resetState, saveState } from './state.js';
-import { initUI, switchScreen, setOnScreenChange, getCurrentScreen, updateResourceBar, openModal, closeModal, showConfirm } from './ui.js';
-import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount, getCharactersByRarity } from './characters.js';
-import { initRoom, updateRoom, renderRoom, initRoomControls, setOnTileTap, setFurniture, findFurnitureAt, GRID, getSprites, getSpriteScreenPos } from './room.js';
-import { draw, freeRollDraw, processDrawResult, TOKEN_TABLES } from './gacha.js';
+﻿// js/main.js – App-Init, Screen-Routing, Gacha + Activity Wiring
+import { initState, getState, mutate, resetState, saveState } from './state.js?v=20260419g';
+import { initUI, switchScreen, setOnScreenChange, getCurrentScreen, updateResourceBar, openModal, closeModal, showConfirm } from './ui.js?v=20260419g';
+import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount, getCharactersByRarity } from './characters.js?v=20260419g';
+import { initRoom, updateRoom, renderRoom, initRoomControls, setOnTileTap, setFurniture, findFurnitureAt, GRID, getSprites, getSpriteScreenPos } from './room.js?v=20260419g';
+import { draw, freeRollDraw, processDrawResult, TOKEN_TABLES } from './gacha.js?v=20260419g';
 import {
   applyOfflineProgress, checkCompletions, getAllActivityDefs, getActivityDef,
   startActivity, removeActivity, getBusyWorkers, calcDuration, canAfford,
   getRemainingTime, getProgress, formatTime,
   applyTick, getOutputRate, getTotalProductionRates, formatRate
-} from './activities.js';
-import { allFurniture } from '../data/furniture/index.js';
+} from './activities.js?v=20260419g';
+import { allFurniture } from '../data/furniture/index.js?v=20260419g';
+import {
+  getAllResearchDefs,
+  getUnlockedIds,
+  canUnlockResearch,
+  applyResearchUnlock,
+} from './research.js?v=20260419h';
 import {
   sfxCoin, sfxRattle, sfxWobble, sfxCharge, sfxBurst,
   sfxRevealCommon, sfxRevealRare, sfxRevealSuperRare,
   sfxNewChar, sfxLevelUp, sfxTap
-} from './sfx.js';
+} from './sfx.js?v=20260419g';
 
 // ---- Möbel-Lookup ----
 const furnitureMap = {};
 for (const f of allFurniture) furnitureMap[f.id] = f;
+const RES_ICONS = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
 
 // ---- Room Management ----
 let currentRoomIndex = 0;
 let placingFurnitureMode = false;
+let outsideAnimId = null;
 
 // ---- App Start ----
 const state = initState();
@@ -36,24 +44,67 @@ saveState(state);
 // UI initialisieren
 initUI();
 updateResourceBar();
+updateResearchUI();
+renderAlphaPanel();
+renderHouseView();
 
 // ---- Canvas-Setup ----
 const canvas = document.getElementById('room-canvas');
 const ctx = canvas.getContext('2d');
 let animationId = null;
+let layoutReady = false;
+const debugPanel = document.getElementById('debug-panel');
+const DEBUG_MODE = new URLSearchParams(window.location.search).has('debug');
+
+function setDebugPanel(lines, isError = false) {
+  if (!debugPanel) return;
+  if (!DEBUG_MODE && !isError) {
+    debugPanel.classList.add('hidden');
+    return;
+  }
+  debugPanel.textContent = Array.isArray(lines) ? lines.join('\n') : String(lines);
+  debugPanel.classList.remove('hidden');
+  debugPanel.style.background = isError ? 'rgba(160, 35, 35, 0.92)' : 'rgba(74, 55, 40, 0.88)';
+}
+
+window.addEventListener('error', (event) => {
+  setDebugPanel(`JS error:\n${event?.error?.stack || event?.message || 'unknown error'}`, true);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  setDebugPanel(`Promise error:\n${event?.reason?.stack || event?.reason || 'unknown rejection'}`, true);
+});
 
 function resizeCanvas() {
   const container = document.getElementById('screen-house');
+  if (!container) return false;
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  if (!width || !height) return false;
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = container.clientWidth * dpr;
-  canvas.height = container.clientHeight * dpr;
-  canvas.style.width = container.clientWidth + 'px';
-  canvas.style.height = container.clientHeight + 'px';
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  layoutReady = true;
+  setDebugPanel([
+    'room debug',
+    `container: ${width}x${height}`,
+    `canvas: ${canvas.width}x${canvas.height}`,
+    `dpr: ${dpr}`,
+    `layoutReady: ${layoutReady}`,
+  ]);
+  return true;
 }
 
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+if ('ResizeObserver' in window) {
+  new ResizeObserver(() => {
+    resizeCanvas();
+  }).observe(document.getElementById('screen-house'));
+}
 initRoomControls(canvas);
 
 // ---- Möbel ----
@@ -68,6 +119,21 @@ function buildFurnitureForRoom(placements) {
       flat: def.id === 'rug',
     };
   }).filter(Boolean);
+}
+
+function getResearchPoints(state = getState()) {
+  return Math.floor(state?.research?.progress || 0);
+}
+
+function getRecipeResearchDef(furnitureId) {
+  return getAllResearchDefs().find((entry) =>
+    (entry.unlocks || []).some((unlock) => unlock.type === 'furniture' && unlock.id === furnitureId)
+  ) || null;
+}
+
+function updateResearchUI() {
+  const countEl = document.getElementById('research-point-count');
+  if (countEl) countEl.textContent = getResearchPoints();
 }
 
 function getDemoPlacementsForRoom0() {
@@ -87,13 +153,7 @@ function getDemoPlacementsForRoom0() {
  * Only runs once – when room 0 has zero placements.
  */
 function seedDemoFurniture() {
-  mutate(s => {
-    if (!s.house.placements) s.house.placements = [];
-    const room0 = s.house.placements.filter(p => (p.room || 0) === 0);
-    if (room0.length === 0) {
-      s.house.placements.push(...getDemoPlacementsForRoom0());
-    }
-  });
+  return;
 }
 
 // ---- Raum-Setup ----
@@ -112,7 +172,7 @@ function setupRoom(roomIndex) {
       chars = collected.map(id => getCharacter(id)).filter(Boolean);
     }
   } else {
-    chars = getAllCharacters().slice(0, Math.min(5, getAllCharacters().length));
+    chars = [];
   }
 
   // Always build furniture from state – no separate demo path
@@ -123,18 +183,27 @@ function setupRoom(roomIndex) {
   updateRoomIndicator();
 }
 
-// Seed demo furniture into state on first run
-seedDemoFurniture();
-
-try { setupRoom(); } catch (e) { console.error('Raum-Init Fehler:', e); }
+try { setupRoom(); } catch (e) {
+  console.error('Raum-Init Fehler:', e);
+  setDebugPanel(`setupRoom failed:\n${e?.stack || e}`, true);
+}
 
 // ---- Render-Loop ----
 function render(timestamp) {
+  if (!layoutReady && !resizeCanvas()) {
+    animationId = requestAnimationFrame(render);
+    return;
+  }
   const t = timestamp / 1000;
   const w = canvas.width / (window.devicePixelRatio || 1);
   const h = canvas.height / (window.devicePixelRatio || 1);
-  updateRoom(t);
-  renderRoom(ctx, w, h, t);
+  try {
+    updateRoom(t);
+    renderRoom(ctx, w, h, t);
+  } catch (e) {
+    setDebugPanel(`render failed:\n${e?.stack || e}`, true);
+    throw e;
+  }
   animationId = requestAnimationFrame(render);
 }
 
@@ -143,7 +212,7 @@ function stopRender() { if (animationId) { cancelAnimationFrame(animationId); an
 
 // ---- Screen-Wechsel ----
 setOnScreenChange((screen) => {
-  if (screen === 'house') { resizeCanvas(); startRender(); updateActivityBadge(); updateRoomIndicator(); }
+  if (screen === 'house') { resizeCanvas(); startRender(); updateActivityBadge(); renderHouseView(); }
   else stopRender();
   if (screen === 'collection') renderCollection();
   if (screen === 'profile') renderProfile();
@@ -151,12 +220,26 @@ setOnScreenChange((screen) => {
 });
 
 startRender();
+requestAnimationFrame(() => {
+  if (resizeCanvas()) {
+    setupRoom(currentRoomIndex);
+    renderHouseView();
+    setDebugPanel([
+      'room debug',
+      `container: ${document.getElementById('screen-house')?.clientWidth || 0}x${document.getElementById('screen-house')?.clientHeight || 0}`,
+      `canvas: ${canvas.width}x${canvas.height}`,
+      `sprites: ${getSprites().length}`,
+      `ctx: ${ctx ? 'ok' : 'missing'}`,
+    ]);
+  }
+});
 
 // ---- Room Indicator ----
 function updateRoomIndicator() {
   const s = getState();
   const container = document.getElementById('room-indicator');
   if (!container) return;
+  if (getHouseView(s) !== 'inside') { container.innerHTML = ''; return; }
   if (s.house.rooms <= 1) { container.innerHTML = ''; return; }
   let html = '';
   for (let i = 0; i < s.house.rooms; i++) {
@@ -174,12 +257,536 @@ function updateRoomIndicator() {
 }
 
 updateRoomIndicator();
+renderHouseViewToggle();
 
-// ---- Furniture Placement Button ----
-document.getElementById('btn-place-furniture').addEventListener('click', () => {
-  placingFurnitureMode = !placingFurnitureMode;
-  document.getElementById('btn-place-furniture').classList.toggle('fab-active', placingFurnitureMode);
-});
+function getAlphaProgress(state = getState()) {
+  return {
+    hasResident: Object.keys(state.collection || {}).length > 0,
+    hasActivity: (state.activities || []).length > 0,
+    hasResources: Object.values(state.resources || {}).some((value) => (value || 0) > 0),
+    hasResearchUnlock: (state.unlocks?.research || []).length > 0,
+    hasFurniture: (state.house?.placements || []).length > 0,
+  };
+}
+
+function getHouseView(state = getState()) {
+  return state.ui?.house_view === 'outside' ? 'outside' : 'inside';
+}
+
+function setHouseView(view) {
+  const nextView = view === 'outside' ? 'outside' : 'inside';
+  if (nextView === 'outside') placingFurnitureMode = false;
+  mutate((s) => {
+    if (!s.ui) s.ui = {};
+    s.ui.house_view = nextView;
+  });
+  renderHouseView();
+}
+
+function isAlphaPanelDismissed(state = getState()) {
+  return !!state.ui?.alpha_panel_dismissed;
+}
+
+function setAlphaPanelDismissed(dismissed) {
+  mutate((s) => {
+    if (!s.ui) s.ui = {};
+    s.ui.alpha_panel_dismissed = dismissed;
+  });
+}
+
+function getOutsideSummary(state = getState()) {
+  const outsideActivityIds = ['gather_wood', 'gather_stone', 'farm_food'];
+  const activeOutsideJobs = (state.activities || []).filter((activity) => outsideActivityIds.includes(activity.id));
+  const totalWorkers = activeOutsideJobs.reduce((sum, activity) => sum + (activity.workers?.length || 0), 0);
+  const stationByActivity = {
+    gather_wood: {
+      id: 'bamboo-grove',
+      icon: '🎋',
+      title: 'Bambushain',
+      hint: 'Holzproduktion läuft draußen statt über seltsame Innenmöbel.',
+    },
+    gather_stone: {
+      id: 'stone-yard',
+      icon: '🪨',
+      title: 'Steinplatz',
+      hint: 'Ein robuster Außen-Spot für Stein und spätere Aufwertungen.',
+    },
+    farm_food: {
+      id: 'garden-bed',
+      icon: '🌱',
+      title: 'Beet',
+      hint: 'Nahrung wächst jetzt sichtbar draußen im Gartenbereich.',
+    },
+  };
+
+  const stations = Object.entries(stationByActivity).map(([activityId, station]) => {
+    const activity = activeOutsideJobs.find((entry) => entry.id === activityId) || null;
+    const def = getActivityDef(activityId);
+    const workers = (activity?.workers || [])
+      .map((workerId, index) => {
+        const char = getCharacter(workerId);
+        if (!char) return null;
+        return {
+          id: workerId,
+          name: char.name,
+          pose: def?.pose || 'hard_work',
+          dir: index % 2,
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      ...station,
+      activityId,
+      activity,
+      workers,
+      status: activity ? `${workers.length} Worker aktiv` : 'Noch frei',
+      body: activity
+        ? `${def?.name || 'Produktion'} läuft gerade auf dieser Außenstation.`
+        : station.hint,
+    };
+  });
+
+  return {
+    activeJobs: activeOutsideJobs.length,
+    activeWorkers: totalWorkers,
+    stations,
+  };
+}
+
+function renderHouseViewToggle() {
+  const container = document.getElementById('house-view-toggle');
+  if (!container) return;
+  const view = getHouseView();
+
+  container.innerHTML = `
+    <div class="house-view-switch">
+      <button class="house-view-btn ${view === 'inside' ? 'active' : ''}" data-house-view="inside">Innen</button>
+      <button class="house-view-btn ${view === 'outside' ? 'active' : ''}" data-house-view="outside">Außen</button>
+    </div>
+  `;
+
+  container.querySelectorAll('[data-house-view]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextView = button.dataset.houseView;
+      if (nextView !== getHouseView()) setHouseView(nextView);
+    });
+  });
+}
+
+function drawOutsideWorkers(timestamp) {
+  if (getCurrentScreen() !== 'house' || getHouseView() !== 'outside') {
+    outsideAnimId = null;
+    return;
+  }
+
+  document.querySelectorAll('.outside-worker-canvas').forEach((canvas) => {
+    const workerId = canvas.dataset.workerId;
+    const char = getCharacter(workerId);
+    if (!char) return;
+    const specDraw = getSpeciesDraw(char.species);
+    const ctx2d = canvas.getContext('2d');
+    if (!specDraw || !ctx2d) return;
+
+    const t = timestamp / 1000;
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+    ctx2d.save();
+    ctx2d.translate(canvas.width / 2, canvas.height - 12);
+    ctx2d.scale(1.55, 1.55);
+    const pose = canvas.dataset.pose || 'hard_work';
+    const dir = parseInt(canvas.dataset.dir || '0', 10) || 0;
+
+    if (pose === 'walk') specDraw.walk(ctx2d, 0, 0, t, dir, char.palette);
+    else if (pose === 'idle') specDraw.idle(ctx2d, 0, 0, t, char.palette);
+    else if (specDraw.poses && specDraw.poses[pose] && char.poses?.includes(pose)) specDraw.poses[pose](ctx2d, 0, 0, t, char.palette);
+    else specDraw.work_default(ctx2d, 0, 0, t, char.palette);
+    ctx2d.restore();
+  });
+
+  outsideAnimId = requestAnimationFrame(drawOutsideWorkers);
+}
+
+function ensureOutsideAnimation() {
+  if (outsideAnimId) cancelAnimationFrame(outsideAnimId);
+  outsideAnimId = null;
+  if (getCurrentScreen() === 'house' && getHouseView() === 'outside') {
+    outsideAnimId = requestAnimationFrame(drawOutsideWorkers);
+  }
+}
+
+function renderOutsideScene() {
+  const outsideScene = document.getElementById('outside-scene');
+  if (!outsideScene) return;
+
+  const outside = getOutsideSummary();
+  outsideScene.innerHTML = `
+    <div class="outside-scene-backdrop">
+      <div class="outside-cloud cloud-a"></div>
+      <div class="outside-cloud cloud-b"></div>
+      <div class="outside-cloud cloud-c"></div>
+      <div class="outside-hills"></div>
+      <div class="outside-ground"></div>
+      <div class="outside-header">
+        <div>
+          <div class="outside-title">Außenbereich</div>
+          <div class="outside-copy">Hier arbeiten deine Tierchen sichtbar an Holz, Stein und Nahrung.</div>
+        </div>
+        <button class="gacha-btn secondary outside-open-work" id="btn-open-outside-work">Arbeit öffnen</button>
+      </div>
+      <div class="outside-station-grid">
+        ${outside.stations.map((station) => `
+          <section class="outside-plot outside-plot-${station.id} ${station.activity ? 'is-active' : ''}">
+            <div class="outside-plot-sign">
+              <span class="outside-plot-icon">${station.icon}</span>
+              <div>
+                <div class="outside-plot-title">${station.title}</div>
+                <div class="outside-plot-status">${station.status}</div>
+              </div>
+            </div>
+            <div class="outside-worker-row">
+              ${station.workers.length > 0 ? station.workers.map((worker) => `
+                <div class="outside-worker">
+                  <canvas class="outside-worker-canvas" width="72" height="84" data-worker-id="${worker.id}" data-pose="${worker.pose}" data-dir="${worker.dir}"></canvas>
+                  <div class="outside-worker-name">${worker.name}</div>
+                </div>
+              `).join('') : '<div class="outside-empty-worker">Frei für neue Worker</div>'}
+            </div>
+            <div class="outside-plot-copy">${station.body}</div>
+            <button class="outside-assign-btn" data-outside-activity="${station.activityId}">Worker zuweisen</button>
+          </section>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  const openWorkBtn = document.getElementById('btn-open-outside-work');
+  if (openWorkBtn) openWorkBtn.addEventListener('click', openActivityModal);
+
+  outsideScene.querySelectorAll('[data-outside-activity]').forEach((button) => {
+    button.addEventListener('click', () => openActivityModal());
+  });
+
+  ensureOutsideAnimation();
+}
+
+function renderHouseView() {
+  const outsideScene = document.getElementById('outside-scene');
+  const canvasEl = document.getElementById('room-canvas');
+  const bubbleLayer = document.getElementById('speech-bubbles-layer');
+  const view = getHouseView();
+
+  renderHouseViewToggle();
+
+  if (outsideScene) {
+    if (view === 'outside') {
+      outsideScene.classList.remove('hidden');
+      renderOutsideScene();
+    } else {
+      outsideScene.classList.add('hidden');
+      outsideScene.innerHTML = '';
+    }
+  }
+
+  if (canvasEl) canvasEl.classList.toggle('hidden', view !== 'inside');
+  if (bubbleLayer) bubbleLayer.classList.toggle('hidden', view !== 'inside');
+
+  if (view !== 'outside' && outsideAnimId) {
+    cancelAnimationFrame(outsideAnimId);
+    outsideAnimId = null;
+  }
+
+  updateRoomIndicator();
+  renderAlphaPanel();
+}
+
+function renderAlphaPanel() {
+  const panel = document.getElementById('alpha-panel');
+  const guideChip = document.getElementById('btn-alpha-guide');
+  if (!panel) return;
+
+  const s = getState();
+  if (getHouseView(s) !== 'inside') {
+    panel.innerHTML = '';
+    panel.classList.add('hidden');
+    if (guideChip) {
+      guideChip.classList.add('hidden');
+      guideChip.onclick = null;
+    }
+    return;
+  }
+  const dismissed = isAlphaPanelDismissed(s);
+  const progress = getAlphaProgress(s);
+  const allDone = Object.values(progress).every(Boolean);
+
+  const steps = [
+    { done: progress.hasResident, label: 'Gratis-Roll nutzen und ersten Bewohner holen' },
+    { done: progress.hasActivity, label: 'Eine erste Tätigkeit starten' },
+    { done: progress.hasResources, label: 'Die ersten Ressourcen verdienen' },
+    { done: progress.hasResearchUnlock, label: 'Einen Bauplan erforschen' },
+    { done: progress.hasFurniture, label: 'Das erste Möbel platzieren' },
+  ];
+
+  let primaryAction = { action: 'gacha', label: 'Zum Gacha' };
+  let secondaryAction = { action: 'collection', label: 'Sammlung' };
+  let copy = 'Starte mit einem leeren Häuschen und arbeite dich durch alle Kernsysteme.';
+
+  if (!progress.hasResident) {
+    copy = 'Dein Alpha-Start beginnt bei null. Nutze zuerst den garantierten Gratis-Roll.';
+    primaryAction = { action: 'gacha', label: 'Gratis-Roll nutzen' };
+    secondaryAction = { action: 'collection', label: 'Sammlung ansehen' };
+  } else if (!progress.hasActivity) {
+    copy = 'Dein erster Bewohner ist da. Schicke ihn jetzt in die erste Tätigkeit.';
+    primaryAction = { action: 'activities', label: 'Arbeit zuweisen' };
+    secondaryAction = { action: 'gacha', label: 'Mehr Ziehungen' };
+  } else if (!progress.hasResearchUnlock) {
+    copy = 'Jetzt läuft der Ressourcen- und Forschungsloop. Öffne Forschung, sobald genug Punkte da sind.';
+    primaryAction = { action: 'research', label: 'Forschung öffnen' };
+    secondaryAction = { action: 'activities', label: 'Tätigkeiten' };
+  } else if (!progress.hasFurniture) {
+    copy = 'Der Bauplan ist freigeschaltet. Platziere jetzt dein erstes Möbel im Haus.';
+    primaryAction = { action: 'place-furniture', label: 'Möbel platzieren' };
+    secondaryAction = { action: 'research', label: 'Weitere Forschung' };
+  } else if (allDone) {
+    copy = 'Der komplette Alpha-Kernloop ist spielbar: sammeln, arbeiten, forschen, bauen und ausbauen.';
+    primaryAction = { action: 'activities', label: 'Weiter optimieren' };
+    secondaryAction = { action: 'gacha', label: 'Neue Bewohner' };
+  }
+
+  if (dismissed) {
+    panel.innerHTML = '';
+    panel.classList.add('hidden');
+    if (guideChip) {
+      guideChip.classList.remove('hidden');
+      guideChip.onclick = () => {
+        setAlphaPanelDismissed(false);
+        renderAlphaPanel();
+      };
+    }
+    return;
+  }
+
+  if (guideChip) {
+    guideChip.classList.add('hidden');
+    guideChip.onclick = null;
+  }
+
+  panel.innerHTML = `
+    <div class="alpha-panel-head">
+      <div class="alpha-panel-title">Alpha Start 0 -> Core Loop</div>
+      <button class="alpha-panel-close" type="button" data-alpha-dismiss="true" aria-label="Guide ausblenden">–</button>
+    </div>
+    <div class="alpha-panel-copy">${copy}</div>
+    <div class="alpha-checklist">
+      ${steps.map((step, index) => `
+        <div class="alpha-check ${step.done ? 'done' : ''}">
+          <span class="alpha-check-dot">${step.done ? 'OK' : index + 1}</span>
+          <span class="alpha-check-label">${step.label}</span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="alpha-panel-actions">
+      <button class="alpha-action-btn primary" data-alpha-action="${primaryAction.action}">${primaryAction.label}</button>
+      <button class="alpha-action-btn secondary" data-alpha-action="${secondaryAction.action}">${secondaryAction.label}</button>
+    </div>
+  `;
+
+  panel.classList.remove('hidden');
+
+  const dismissBtn = panel.querySelector('[data-alpha-dismiss]');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', () => {
+      setAlphaPanelDismissed(true);
+      renderAlphaPanel();
+    });
+  }
+
+  panel.querySelectorAll('[data-alpha-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.alphaAction;
+      if (action === 'gacha') {
+        switchScreen('gacha');
+      } else if (action === 'activities') {
+        openGameMenuModal('activities');
+      } else if (action === 'research') {
+        openGameMenuModal('research');
+      } else if (action === 'place-furniture') {
+        openGameMenuModal('furniture');
+      } else if (action === 'collection') {
+        switchScreen('collection');
+      }
+    });
+  });
+}
+
+function getAdventureSummary(state = getState()) {
+  const hasResident = Object.keys(state.collection || {}).length > 0;
+  const hasCoreLoop = (state.activities || []).length > 0 && ((state.unlocks?.research || []).length > 0);
+  return {
+    unlocked: hasResident,
+    readySoon: hasCoreLoop,
+    title: hasCoreLoop ? 'Abenteuer kommen als nächster großer Schritt' : 'Abenteuer folgen nach dem Kernloop',
+    body: hasCoreLoop
+      ? 'Das Haus hat jetzt Arbeit, Forschung und Möbel. Als Nächstes können wir aktive Abenteuer und Entscheidungen ergänzen.'
+      : 'Sobald der Kernloop sitzt, hängen wir hier ein Abenteuersystem mit Teams, Entscheidungen und Belohnungen ein.',
+  };
+}
+
+function activateFurniturePlacement() {
+  placingFurnitureMode = true;
+  closeModal();
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Möbel platzieren</span>
+      <button class="modal-close">✕</button>
+    </div>
+    <div class="activity-empty">Tippe jetzt auf ein freies Feld im Raum, um Möbel zu platzieren oder vorhandene Möbel zu verwalten.</div>
+  `);
+}
+
+function openGameMenuModal(activeSection = 'overview') {
+  const s = getState();
+  const adventure = getAdventureSummary(s);
+  const outside = getOutsideSummary(s);
+  const alphaDismissed = isAlphaPanelDismissed(s);
+  const activeCount = (s.activities || []).length;
+  const recipeCount = (s.unlocks?.furniture || []).length;
+  const researchCount = (s.unlocks?.research || []).length;
+
+  const cards = [
+    {
+      id: 'activities',
+      emoji: '⚒️',
+      title: 'Arbeit',
+      meta: activeCount > 0 ? `${activeCount} laufend` : 'Noch nichts gestartet',
+      body: 'Weise Bewohner Tätigkeiten zu, sammle Ressourcen und halte den Kernloop am Laufen.',
+      cta: 'Arbeit öffnen',
+      enabled: Object.keys(s.collection || {}).length > 0,
+    },
+    {
+      id: 'research',
+      emoji: '🔬',
+      title: 'Forschung',
+      meta: `${getResearchPoints(s)} Punkte · ${researchCount} Baupläne`,
+      body: 'Schalte Möbel-Rezepte frei und baue damit den Haus-Fortschritt aus.',
+      cta: 'Forschung öffnen',
+      enabled: true,
+    },
+    {
+      id: 'furniture',
+      emoji: '🪑',
+      title: 'Möbel',
+      meta: `${recipeCount} Rezepte · ${(s.house?.placements || []).length} platziert`,
+      body: 'Starte den Platzierungsmodus und richte dein Häuschen sichtbar ein.',
+      cta: 'Platzierungsmodus',
+      enabled: true,
+    },
+    {
+      id: 'adventures',
+      emoji: '🗺️',
+      title: 'Abenteuer',
+      meta: adventure.readySoon ? 'Nächster Ausbauschritt' : 'Noch gesperrt',
+      body: adventure.body,
+      cta: adventure.readySoon ? 'Vorschau ansehen' : 'Info',
+      enabled: adventure.unlocked,
+    },
+    {
+      id: 'outside',
+      emoji: '🌿',
+      title: 'Außenbereich',
+      meta: outside.activeJobs > 0 ? `${outside.activeJobs} Stationen aktiv · ${outside.activeWorkers} Worker draußen` : 'Produktionsflächen vorbereiten',
+      body: 'Verortet Holz, Stein und Beete außerhalb des Hauses. Erste Stationen sind jetzt als eigener Bereich vorbereitet.',
+      cta: 'Außenbereich ansehen',
+      enabled: true,
+    },
+  ];
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Spielmenü</span>
+      <button class="modal-close">✕</button>
+    </div>
+    <div class="hub-menu">
+      <div class="hub-menu-intro">
+        <div class="hub-menu-title">Alle Kernsysteme an einem Ort</div>
+        <div class="hub-menu-copy">Arbeit, Forschung, Möbel, Außenbereich und Abenteuer teilen sich jetzt einen gemeinsamen Einstieg.</div>
+      </div>
+      ${alphaDismissed ? `
+        <button class="gacha-btn secondary hub-utility-btn" id="btn-restore-alpha-panel">
+          Guide im Haus wieder einblenden
+        </button>
+      ` : ''}
+      <div class="hub-card-grid">
+        ${cards.map((card) => `
+          <div class="hub-card ${card.id === activeSection ? 'is-active' : ''} ${card.enabled ? '' : 'is-disabled'}">
+            <div class="hub-card-head">
+              <div class="hub-card-icon">${card.emoji}</div>
+              <div>
+                <div class="hub-card-title">${card.title}</div>
+                <div class="hub-card-meta">${card.meta}</div>
+              </div>
+            </div>
+            <div class="hub-card-body">${card.body}</div>
+            <button class="gacha-btn ${card.enabled ? 'primary' : 'secondary'} hub-card-btn" data-hub-action="${card.id}">
+              ${card.cta}
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `);
+
+  const restoreGuideBtn = document.getElementById('btn-restore-alpha-panel');
+  if (restoreGuideBtn) {
+    restoreGuideBtn.addEventListener('click', () => {
+      setAlphaPanelDismissed(false);
+      closeModal();
+      renderAlphaPanel();
+    });
+  }
+
+  document.querySelectorAll('.hub-card-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.hubAction;
+      if (action === 'activities') {
+        openActivityModal();
+      } else if (action === 'research') {
+        openResearchModal();
+      } else if (action === 'furniture') {
+        setHouseView('inside');
+        activateFurniturePlacement();
+      } else if (action === 'outside') {
+        closeModal();
+        switchScreen('house');
+        setHouseView('outside');
+      } else if (action === 'adventures') {
+        openModal(`
+          <div class="modal-header">
+            <span class="modal-title">Abenteuer</span>
+            <button class="modal-close">✕</button>
+          </div>
+          <div class="research-summary">
+            <div class="research-hero">
+              <div class="research-hero-top">
+                <div class="research-hero-title">Abenteuer im Alpha-Plan</div>
+                <div class="research-hero-points">Bald</div>
+              </div>
+              <div class="research-hero-hint">${adventure.title}. ${adventure.body}</div>
+            </div>
+            <div class="activity-empty">Der Menüpunkt ist jetzt vorbereitet. Als Nächstes können wir hier Team-Abenteuer, Events und Belohnungen anschließen.</div>
+            <div class="alpha-panel-actions">
+              <button class="gacha-btn secondary" id="btn-close-adventures-preview">Schließen</button>
+              <button class="gacha-btn primary" id="btn-back-to-hub">Zurück zum Spielmenü</button>
+            </div>
+          </div>
+        `);
+        const closeBtn = document.getElementById('btn-close-adventures-preview');
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        const backBtn = document.getElementById('btn-back-to-hub');
+        if (backBtn) backBtn.addEventListener('click', () => openGameMenuModal('adventures'));
+      }
+    });
+  });
+}
 
 // ---- Tile Tap Handler ----
 setOnTileTap((tile) => {
@@ -195,22 +802,20 @@ setOnTileTap((tile) => {
 
 function openFurniturePlaceModal(tx, ty) {
   const s = getState();
-  const owned = s.unlocked_recipes || [];
+  const owned = getUnlockedIds(s, 'furniture');
 
   let itemsHTML = '<div class="furniture-grid">';
   for (const f of allFurniture) {
     const fits = checkFurnitureFits(tx, ty, f.size || { w: 1, d: 1 });
     const hasRecipe = owned.includes(f.id);
+    const recipeResearch = getRecipeResearchDef(f.id);
     // Generisch: alle Ressourcen in den Cost-Objekten prüfen
     const canBuy = fits && f.buy &&
       Object.entries(f.buy.cost || {}).every(([k, v]) => (s.resources[k] || 0) >= v);
-    // Rezept-Freischaltung: vorläufig kostenlos bis Research-Bar implementiert ist
-    // TODO: unlock_cost an research.unlocked koppeln
-    const canUnlock = fits && !hasRecipe && !!f.craft;
+    const unlockCost = recipeResearch?.cost || 0;
+    const canUnlock = fits && !!recipeResearch && canUnlockResearch(s, recipeResearch);
     const canCraft = fits && hasRecipe && f.craft &&
       Object.entries(f.craft.cost || {}).every(([k, v]) => (s.resources[k] || 0) >= v);
-
-    const RES_ICONS = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵', goods: '🧁', material: '🪵', ideas: '💡' };
     const buyLabel = f.buy
       ? Object.entries(f.buy.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ')
       : '–';
@@ -218,7 +823,7 @@ function openFurniturePlaceModal(tx, ty) {
     let craftBtnClass, craftBtnText;
     if (!hasRecipe) {
       craftBtnClass = canUnlock ? 'furniture-unlock-btn' : 'furniture-unlock-btn btn-too-poor';
-      craftBtnText = `🔓 Rezept freischalten`;
+      craftBtnText = `🔓 Rezept freischalten ${unlockCost ? `(${unlockCost} 🔬)` : ''}`;
     } else {
       const costParts = Object.entries(f.craft?.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ');
       craftBtnClass = canCraft ? 'furniture-craft-btn' : 'furniture-craft-btn btn-too-poor';
@@ -235,7 +840,7 @@ function openFurniturePlaceModal(tx, ty) {
             <button class="furniture-buy-btn ${canBuy ? '' : 'btn-too-poor'}" data-id="${f.id}" ${!fits ? 'disabled' : ''}>
               🛒 ${buyLabel}
             </button>
-            <button class="${craftBtnClass}" data-id="${f.id}" ${!fits ? 'disabled' : ''}>
+            <button class="${craftBtnClass}" data-id="${recipeResearch?.id || f.id}" ${!fits || (!hasRecipe && !recipeResearch) ? 'disabled' : ''}>
               ${craftBtnText}
             </button>
           </div>
@@ -286,23 +891,22 @@ function openFurniturePlaceModal(tx, ty) {
       });
       closeModal();
       placingFurnitureMode = false;
-      document.getElementById('btn-place-furniture').classList.remove('fab-active');
       updateResourceBar();
+      updateResearchUI();
+      renderAlphaPanel();
       setupRoom(currentRoomIndex);
     });
   });
 
   document.querySelectorAll('.furniture-unlock-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const fId = btn.dataset.id;
-      const fDef = furnitureMap[fId];
-      if (!fDef) return;
-      // Rezept freischalten ist aktuell kostenlos (bis Research-Bar verdrahtet ist)
+      const researchId = btn.dataset.id;
       mutate(s => {
-        if (!s.unlocked_recipes) s.unlocked_recipes = [];
-        s.unlocked_recipes.push(fId);
+        applyResearchUnlock(s, researchId);
       });
       updateResourceBar();
+      updateResearchUI();
+      renderAlphaPanel();
       openFurniturePlaceModal(tx, ty);
     });
   });
@@ -326,8 +930,9 @@ function openFurniturePlaceModal(tx, ty) {
       });
       closeModal();
       placingFurnitureMode = false;
-      document.getElementById('btn-place-furniture').classList.remove('fab-active');
       updateResourceBar();
+      updateResearchUI();
+      renderAlphaPanel();
       setupRoom(currentRoomIndex);
     });
   });
@@ -384,6 +989,8 @@ function openFurnitureManageModal(furniture, tile) {
     });
     closeModal();
     updateResourceBar();
+    updateResearchUI();
+    renderAlphaPanel();
     setupRoom(currentRoomIndex);
   });
 }
@@ -403,6 +1010,8 @@ if (offlineCompletions.length > 0) {
       msg += `<div class="offline-item">${name}: ${outputStr}</div>`;
     } else if (c.type === 'room_built') {
       msg += `<div class="offline-item">🏠 Neues Zimmer gebaut! (${c.rooms} Räume)</div>`;
+    } else if (c.type === 'research_progress') {
+      msg += `<div class="offline-item">🔬 Forschung abgeschlossen! (${c.progress}/100 Punkte)</div>`;
     }
   }
   msg += '</div>';
@@ -506,6 +1115,7 @@ document.getElementById('btn-add-tokens').addEventListener('click', () => {
         closeModal();
         updateGachaUI();
         updateResourceBar();
+        renderAlphaPanel();
       });
     });
   }
@@ -672,6 +1282,7 @@ function dismissReveal() {
   gachaAnimating = false;
   updateGachaUI();
   updateResourceBar();
+  renderAlphaPanel();
   renderGachaMachine();
 }
 
@@ -920,11 +1531,14 @@ function updateActivityBadge() {
   if (completions.length > 0) {
     saveState(s);
     updateResourceBar();
+    updateResearchUI();
     updateRoomIndicator();
+    renderAlphaPanel();
     // If a room was built, refresh the room
     if (completions.some(c => c.type === 'room_built')) {
       setupRoom(currentRoomIndex);
     }
+    renderHouseView();
     badge.classList.remove('hidden');
     setTimeout(() => badge.classList.add('hidden'), 3000);
   } else {
@@ -941,7 +1555,10 @@ function startActivityChecker() {
     if (completions.length > 0) {
       saveState(s);
       updateResourceBar();
+      updateResearchUI();
       updateRoomIndicator();
+      renderAlphaPanel();
+      renderHouseView();
       updateActivityBadge();
     }
   }, 5000);
@@ -954,6 +1571,9 @@ startActivityChecker();
 setInterval(() => {
   mutate(s => applyTick(s));
   updateResourceBar();
+  updateResearchUI();
+  renderAlphaPanel();
+  renderHouseView();
   updateProductionRates();
 }, 1000);
 
@@ -1015,7 +1635,7 @@ function showBubble(sprite, context, cw, ch, now) {
   const emoji = speech[Math.floor(Math.random() * speech.length)];
   const pos = getSpriteScreenPos(sprite.px, sprite.py, cw, ch);
 
-  // Blase ~45px über dem Sprite-Fuß (Kopf ist ca. 50-60% der Höhe über dem Ankerpunkt)
+  // Blase ~45px über dem Sprite-FußKopf ist ca. 50-60% der Höhe über dem Ankerpunkt)
   const HEAD_OFFSET = 48;
 
   bubbleCooldowns.set(char.id, now);
@@ -1041,6 +1661,7 @@ function showBubble(sprite, context, cw, ch, now) {
  */
 function checkSpeechBubbles() {
   if (getCurrentScreen() !== 'house') return;
+  if (getHouseView() !== 'inside') return;
 
   const sprites = getSprites();
   if (!sprites.length) return;
@@ -1094,8 +1715,8 @@ function checkSpeechBubbles() {
 const _bubbleInterval = setInterval(checkSpeechBubbles, 1000);
 
 // ---- Aktivitäts-Zuweisung ----
-document.getElementById('btn-assign-activity').addEventListener('click', () => {
-  openActivityModal();
+document.getElementById('btn-open-menu').addEventListener('click', () => {
+  openGameMenuModal();
 });
 
 function openActivityModal() {
@@ -1122,6 +1743,9 @@ function openActivityModal() {
       if (act.unlocks === 'room_slot') {
         const remaining = getRemainingTime(act);
         metaRight = `${formatTime(remaining)} verbleibend`;
+      } else if (act.unlocks === 'research_progress') {
+        const remaining = getRemainingTime(act);
+        metaRight = `${formatTime(remaining)} bis +25 🔬`;
       } else {
         const rateStr = Object.entries(getOutputRate(act)).map(([k, perSec]) => {
           const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
@@ -1172,7 +1796,7 @@ function openActivityModal() {
               return `${icons[k] || ''}${formatRate(perSec)}`;
             }).join(', ');
           })()
-        : (def.unlocks === 'room_slot' ? '🏠 Neues Zimmer' : '–');
+        : (def.unlocks === 'room_slot' ? '🏠 Neues Zimmer' : def.unlocks === 'research_progress' ? '🔬 +25 Forschung' : '–');
 
       const durationStr = formatTime(def.duration_base);
 
@@ -1208,6 +1832,9 @@ function openActivityModal() {
       const idx = parseInt(btn.dataset.index);
       mutate(s => removeActivity(s, idx));
       updateResourceBar();
+      updateResearchUI();
+      renderAlphaPanel();
+      renderHouseView();
       openActivityModal(); // Modal neu rendern
     });
   });
@@ -1311,7 +1938,11 @@ function openWorkerSelectModal(activityId) {
         });
         closeModal();
         updateResourceBar();
+        updateResearchUI();
         updateActivityBadge();
+        renderAlphaPanel();
+        renderHouseView();
+        if (activityId === 'research') openResearchModal();
       });
     }
 
@@ -1515,9 +2146,31 @@ function renderGachaMachine() {
   if (machine.children.length > 0) return; // Schon was drin (z.B. Animation)
   machine.innerHTML = `
     <div class="gacha-deko">
+      <div class="gacha-topper"></div>
       <div class="gacha-globe"></div>
+      <div class="gacha-chute">
+        <div class="gacha-chute-inner"></div>
+      </div>
+      <div class="gacha-capsules">
+        <span class="mini-capsule capsule-gold"></span>
+        <span class="mini-capsule capsule-blue"></span>
+        <span class="mini-capsule capsule-cream"></span>
+        <span class="mini-capsule capsule-pink"></span>
+        <span class="mini-capsule capsule-mint"></span>
+        <span class="mini-capsule capsule-lilac"></span>
+      </div>
       <div class="gacha-base"></div>
+      <div class="gacha-trim"></div>
+      <div class="gacha-panel">
+        <div class="gacha-panel-light"></div>
+        <div class="gacha-panel-slot"></div>
+      </div>
       <div class="gacha-knob"></div>
+      <div class="gacha-knob-center"></div>
+      <div class="gacha-feet">
+        <span></span>
+        <span></span>
+      </div>
     </div>
   `;
 }
@@ -1560,14 +2213,84 @@ function renderProfile() {
 document.getElementById('btn-reset').addEventListener('click', () => {
   showConfirm('Willst du wirklich deinen gesamten Spielstand löschen? Das kann nicht rückgängig gemacht werden.', () => {
     resetState();
-    const fresh = initState();
+    initState();
     currentRoomIndex = 0;
-    seedDemoFurniture();
     updateResourceBar();
+    updateResearchUI();
+    renderAlphaPanel();
     setupRoom(0);
+    setHouseView('inside');
+    renderHouseView();
+    renderProfile();
+    renderGachaScreen();
     switchScreen('house');
   });
 });
+
+function openResearchModal() {
+  const s = getState();
+  const points = getResearchPoints(s);
+  const unlocked = new Set(getUnlockedIds(s, 'research'));
+  const researchables = getAllResearchDefs()
+    .filter((entry) => entry.category === 'furniture')
+    .sort((a, b) => a.cost - b.cost);
+
+  const cards = researchables.map((entry) => {
+    const cost = entry.cost || 0;
+    const isUnlocked = unlocked.has(entry.id);
+    const canUnlockNow = !isUnlocked && points >= cost;
+    const furnitureUnlock = (entry.unlocks || []).find((unlock) => unlock.type === 'furniture');
+    const furniture = furnitureUnlock ? furnitureMap[furnitureUnlock.id] : null;
+    const craftCost = Object.entries(furniture?.craft?.cost || {})
+      .map(([k, v]) => `${v} ${k}`)
+      .join(' · ');
+
+    return `
+      <div class="research-card ${isUnlocked ? 'unlocked' : ''}">
+        <div class="research-card-head">
+          <div>
+            <div class="research-card-title">${entry.name}</div>
+            <div class="research-card-meta">Bauplan für ${furniture?.size?.w || '?'}×${furniture?.size?.d || '?'} · Baukosten: ${craftCost || '–'}</div>
+          </div>
+          <div class="research-card-status">${isUnlocked ? 'Freigeschaltet' : 'Gesperrt'}</div>
+        </div>
+        <div class="research-card-cost">🔬 ${cost} Forschung</div>
+        ${isUnlocked ? '' : `<button class="research-unlock-btn gacha-btn ${canUnlockNow ? 'primary' : 'secondary'}" data-recipe-id="${entry.id}" ${canUnlockNow ? '' : 'disabled'}>Rezept freischalten</button>`}
+      </div>
+    `;
+  }).join('');
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Forschung</span>
+      <button class="modal-close">✕</button>
+    </div>
+    <div class="research-summary">
+      <div class="research-hero">
+        <div class="research-hero-top">
+          <div class="research-hero-title">Forschungspunkte</div>
+          <div class="research-hero-points">${points} / 100 🔬</div>
+        </div>
+        <div class="research-bar"><div class="research-bar-fill" style="width:${Math.min(100, points)}%"></div></div>
+        <div class="research-hero-hint">Schicke Figuren auf „Forschen“, um jeweils 25 Punkte zu erhalten. Punkte werden beim Freischalten von Möbel-Rezepten verbraucht.</div>
+      </div>
+      <div class="research-section-title">Baupläne</div>
+      <div class="research-card-list">${cards || '<div class="activity-empty">Noch keine Forschungsobjekte vorhanden.</div>'}</div>
+    </div>
+  `);
+
+  document.querySelectorAll('.research-unlock-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const recipeId = btn.dataset.recipeId;
+      mutate(state => {
+        applyResearchUnlock(state, recipeId);
+      });
+      updateResearchUI();
+      renderAlphaPanel();
+      openResearchModal();
+    });
+  });
+}
 
 // ========================================
 // FREE ROLL CHECK
@@ -1590,3 +2313,4 @@ function checkFreeRoll(state) {
 // ========================================
 
 console.log(`🏠 Gachapon Häuschen geladen – ${getAllCharacters().length} Figuren, ${getTotalCharacterCount()} total`);
+

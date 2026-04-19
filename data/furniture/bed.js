@@ -1,8 +1,8 @@
 import { isoColors } from '../characters/species/_helpers.js';
 export default {
   id: 'bed', name: 'Bett', size: { w: 1, d: 2 },
-  buy: { cost: { goods: 25 } },
-  craft: { cost: { material: 15, ideas: 4 }, duration: 1200, unlock_cost: { ideas: 12 } },
+  buy: { cost: { wood: 18, fabric: 7 } },
+  craft: { cost: { wood: 15, fabric: 4 }, duration: 1200 },
   draw(ctx, tx, ty) {
     const w = isoColors('#B88B5A'); const b = isoColors('#8AAFD4');
     ctx.fillStyle = w.left; ctx.fillRect(tx-8, ty-6, 16, 18);

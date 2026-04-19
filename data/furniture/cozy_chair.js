@@ -1,8 +1,8 @@
 import { isoColors } from '../characters/species/_helpers.js';
 export default {
   id: 'cozy_chair', name: 'Gemütlicher Stuhl', size: { w: 1, d: 1 },
-  buy: { cost: { goods: 15 } },
-  craft: { cost: { material: 8, ideas: 3 }, duration: 600, unlock_cost: { ideas: 10 } },
+  buy: { cost: { wood: 6, fabric: 9 } },
+  craft: { cost: { wood: 8, fabric: 3 }, duration: 600 },
   draw(ctx, tx, ty) {
     const c = isoColors('#D47A7A');
     ctx.fillStyle = c.top;

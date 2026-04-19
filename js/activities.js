@@ -1,6 +1,6 @@
 // js/activities.js – Tätigkeits-Loop, Offline-Progress, Worker-Zuweisung
-import { allActivities } from '../data/activities/index.js';
-import { getCharacter } from './characters.js';
+import { allActivities } from '../data/activities/index.js?v=20260419b';
+import { getCharacter } from './characters.js?v=20260419b';
 
 const activityMap = {};
 for (const a of allActivities) activityMap[a.id] = a;
@@ -9,7 +9,13 @@ export function getActivityDef(id) { return activityMap[id] || null; }
 export function getAllActivityDefs() { return allActivities; }
 
 export function calcDuration(actDef, workerCount, state, workerIds) {
-  let dur = actDef.duration_base / Math.sqrt(Math.max(1, workerCount));
+  const safeWorkerCount = Math.max(1, workerCount);
+  let dur = actDef.duration_base;
+  if (actDef.duration_scaling === 'linear') {
+    dur = dur / safeWorkerCount;
+  } else {
+    dur = dur / Math.sqrt(safeWorkerCount);
+  }
   if (actDef.room_penalty && state && state.house) {
     const rooms = state.house.rooms || 1;
     dur *= Math.pow(1 + actDef.room_penalty, rooms - 1);

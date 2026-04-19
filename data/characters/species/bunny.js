@@ -22,7 +22,7 @@ function drawBunnyBase(ctx, x, y, palette, opts = {}) {
   drawRoundRect(ctx, x + 0.5, baseY - 6, 4.5, 7, 2, legColor);
   
   // Schwänzchen
-  drawCircle(ctx, x, baseY - 3, 3, palette.detail1);
+  drawCircle(ctx, x, baseY - 4, 3, palette.detail1);
   
   // Körper
   drawRoundRect(ctx, x - 6.5, bodyY - 5, 13, 10, 5, palette.primary);

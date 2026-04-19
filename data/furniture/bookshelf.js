@@ -1,8 +1,8 @@
 import { isoColors } from '../characters/species/_helpers.js';
 export default {
   id: 'bookshelf', name: 'Bücherregal', size: { w: 2, d: 1 },
-  buy: { cost: { goods: 20 } },
-  craft: { cost: { material: 12, ideas: 5 }, duration: 900, unlock_cost: { ideas: 8 } },
+  buy: { cost: { wood: 16, fabric: 4 } },
+  craft: { cost: { wood: 12, fabric: 5 }, duration: 900 },
   draw(ctx, tx, ty) {
     const c = isoColors('#A07850');
     ctx.fillStyle = c.left; ctx.fillRect(tx-12, ty-24, 4, 28); ctx.fillRect(tx+8, ty-24, 4, 28);
