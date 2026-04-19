@@ -8,7 +8,7 @@ import {
   applyOfflineProgress, checkCompletions, getAllActivityDefs, getActivityDef,
   startActivity, removeActivity, getBusyWorkers, calcDuration, canAfford,
   getRemainingTime, getProgress, formatTime,
-  applyTick, getOutputRate, getTotalProductionRates, formatRate
+  applyTick, getOutputRate, getTotalProductionRates, formatRate, startFurnitureBuild, RESEARCH_POINTS_PER_RUN
 } from './activities.js?v=20260419g';
 import { allFurniture } from '../data/furniture/index.js?v=20260419g';
 import {
@@ -32,6 +32,58 @@ const RES_ICONS = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
 let currentRoomIndex = 0;
 let placingFurnitureMode = false;
 let outsideAnimId = null;
+const OUTSIDE_ACTIVITY_IDS = ['gather_wood', 'gather_stone', 'farm_food'];
+const OUTSIDE_STATION_CONFIG = {
+  gather_wood: {
+    id: 'bamboo-grove',
+    icon: '🎋',
+    title: 'Bambushain',
+    hint: 'Holzproduktion läuft draußen zwischen Bambus und Werkzeugkisten.',
+    sceneX: 20,
+    sceneY: 31,
+    accent: 'grove',
+    slots: [
+      { x: 18, y: 54 },
+      { x: 28, y: 58 },
+      { x: 24, y: 44 },
+    ],
+  },
+  gather_stone: {
+    id: 'stone-yard',
+    icon: '🪨',
+    title: 'Steinplatz',
+    hint: 'Ein robuster Außen-Spot für Stein und spätere Aufwertungen.',
+    sceneX: 72,
+    sceneY: 36,
+    accent: 'stone',
+    slots: [
+      { x: 68, y: 58 },
+      { x: 79, y: 54 },
+      { x: 74, y: 45 },
+    ],
+  },
+  farm_food: {
+    id: 'garden-bed',
+    icon: '🌱',
+    title: 'Beet',
+    hint: 'Nahrung wächst jetzt sichtbar draußen im Gartenbereich.',
+    sceneX: 48,
+    sceneY: 71,
+    accent: 'garden',
+    slots: [
+      { x: 42, y: 82 },
+      { x: 52, y: 86 },
+      { x: 59, y: 79 },
+    ],
+  },
+};
+const OUTSIDE_IDLE_SLOTS = [
+  { x: 12, y: 77 },
+  { x: 28, y: 84 },
+  { x: 63, y: 82 },
+  { x: 83, y: 76 },
+  { x: 50, y: 60 },
+];
 
 // ---- App Start ----
 const state = initState();
@@ -123,6 +175,23 @@ function buildFurnitureForRoom(placements) {
 
 function getResearchPoints(state = getState()) {
   return Math.floor(state?.research?.progress || 0);
+}
+
+function getAvailableBuilders(state = getState()) {
+  const busy = getBusyWorkers(state);
+  return Object.keys(state.collection || {})
+    .map((id) => getCharacter(id))
+    .filter(Boolean)
+    .filter((char) => !busy.has(char.id))
+    .sort((a, b) => {
+      const aCraft = a.poses?.includes('craft') ? 1 : 0;
+      const bCraft = b.poses?.includes('craft') ? 1 : 0;
+      return bCraft - aCraft || a.name.localeCompare(b.name);
+    });
+}
+
+function getPendingFurnitureBuilds(state = getState()) {
+  return (state.activities || []).filter((activity) => activity.unlocks === 'furniture_build' && activity.build);
 }
 
 function getRecipeResearchDef(furnitureId) {
@@ -295,31 +364,9 @@ function setAlphaPanelDismissed(dismissed) {
 }
 
 function getOutsideSummary(state = getState()) {
-  const outsideActivityIds = ['gather_wood', 'gather_stone', 'farm_food'];
-  const activeOutsideJobs = (state.activities || []).filter((activity) => outsideActivityIds.includes(activity.id));
+  const activeOutsideJobs = (state.activities || []).filter((activity) => OUTSIDE_ACTIVITY_IDS.includes(activity.id));
   const totalWorkers = activeOutsideJobs.reduce((sum, activity) => sum + (activity.workers?.length || 0), 0);
-  const stationByActivity = {
-    gather_wood: {
-      id: 'bamboo-grove',
-      icon: '🎋',
-      title: 'Bambushain',
-      hint: 'Holzproduktion läuft draußen statt über seltsame Innenmöbel.',
-    },
-    gather_stone: {
-      id: 'stone-yard',
-      icon: '🪨',
-      title: 'Steinplatz',
-      hint: 'Ein robuster Außen-Spot für Stein und spätere Aufwertungen.',
-    },
-    farm_food: {
-      id: 'garden-bed',
-      icon: '🌱',
-      title: 'Beet',
-      hint: 'Nahrung wächst jetzt sichtbar draußen im Gartenbereich.',
-    },
-  };
-
-  const stations = Object.entries(stationByActivity).map(([activityId, station]) => {
+  const stations = Object.entries(OUTSIDE_STATION_CONFIG).map(([activityId, station]) => {
     const activity = activeOutsideJobs.find((entry) => entry.id === activityId) || null;
     const def = getActivityDef(activityId);
     const workers = (activity?.workers || [])
@@ -347,10 +394,46 @@ function getOutsideSummary(state = getState()) {
     };
   });
 
+  const busyWorkerIds = new Set(activeOutsideJobs.flatMap((activity) => activity.workers || []));
+  const idleResidents = Object.keys(state.collection || {})
+    .filter((workerId) => !busyWorkerIds.has(workerId))
+    .slice(0, OUTSIDE_IDLE_SLOTS.length)
+    .map((workerId, index) => {
+      const char = getCharacter(workerId);
+      if (!char) return null;
+      const slot = OUTSIDE_IDLE_SLOTS[index];
+      return {
+        id: workerId,
+        name: char.name,
+        pose: index % 2 === 0 ? 'idle' : 'walk',
+        dir: index % 2,
+        x: slot.x,
+        y: slot.y,
+        status: 'spaziert',
+        type: 'idle',
+      };
+    })
+    .filter(Boolean);
+
+  const activeResidents = stations.flatMap((station) =>
+    station.workers.map((worker, index) => {
+      const slot = station.slots[index % station.slots.length];
+      return {
+        ...worker,
+        x: slot.x,
+        y: slot.y,
+        status: station.title,
+        type: 'active',
+        accent: station.accent,
+      };
+    })
+  );
+
   return {
     activeJobs: activeOutsideJobs.length,
     activeWorkers: totalWorkers,
     stations,
+    residents: [...activeResidents, ...idleResidents],
   };
 }
 
@@ -380,7 +463,7 @@ function drawOutsideWorkers(timestamp) {
     return;
   }
 
-  document.querySelectorAll('.outside-worker-canvas').forEach((canvas) => {
+  document.querySelectorAll('.outside-worker-canvas, .outside-actor-canvas').forEach((canvas) => {
     const workerId = canvas.dataset.workerId;
     const char = getCharacter(workerId);
     if (!char) return;
@@ -420,19 +503,44 @@ function renderOutsideScene() {
 
   const outside = getOutsideSummary();
   outsideScene.innerHTML = `
-    <div class="outside-scene-backdrop">
-      <div class="outside-cloud cloud-a"></div>
-      <div class="outside-cloud cloud-b"></div>
-      <div class="outside-cloud cloud-c"></div>
-      <div class="outside-hills"></div>
-      <div class="outside-ground"></div>
-      <div class="outside-header">
-        <div>
-          <div class="outside-title">Außenbereich</div>
-          <div class="outside-copy">Hier arbeiten deine Tierchen sichtbar an Holz, Stein und Nahrung.</div>
-        </div>
-        <button class="gacha-btn secondary outside-open-work" id="btn-open-outside-work">Arbeit öffnen</button>
+    <div class="outside-scroll">
+      <div class="outside-scene-backdrop">
+        <div class="outside-cloud cloud-a"></div>
+        <div class="outside-cloud cloud-b"></div>
+        <div class="outside-cloud cloud-c"></div>
+        <div class="outside-hills"></div>
+        <div class="outside-ground"></div>
       </div>
+
+      <section class="outside-hero">
+        <div class="outside-header">
+          <div>
+            <div class="outside-title">Außenbereich</div>
+            <div class="outside-copy">Deine Tierchen leben jetzt auch draußen: sie laufen zwischen Bambus, Steinen und Beeten herum und arbeiten direkt in ihrer Umgebung.</div>
+          </div>
+          <button class="gacha-btn secondary outside-open-work" id="btn-open-outside-work">Arbeit öffnen</button>
+        </div>
+
+        <div class="outside-world">
+          ${outside.stations.map((station) => `
+            <button class="outside-zone outside-zone-${station.accent} ${station.activity ? 'is-active' : ''}" style="left:${station.sceneX}%; top:${station.sceneY}%;" data-outside-activity="${station.activityId}">
+              <span class="outside-zone-icon">${station.icon}</span>
+              <span class="outside-zone-label">${station.title}</span>
+            </button>
+          `).join('')}
+
+          <div class="outside-actors-layer">
+            ${outside.residents.map((resident, index) => `
+              <div class="outside-actor outside-actor-${resident.type}" style="left:${resident.x}%; top:${resident.y}%;" data-actor-index="${index}">
+                <div class="outside-actor-badge">${resident.status}</div>
+                <canvas class="outside-actor-canvas" width="72" height="84" data-worker-id="${resident.id}" data-pose="${resident.pose}" data-dir="${resident.dir}"></canvas>
+                <div class="outside-actor-name">${resident.name}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </section>
+
       <div class="outside-station-grid">
         ${outside.stations.map((station) => `
           <section class="outside-plot outside-plot-${station.id} ${station.activity ? 'is-active' : ''}">
@@ -473,6 +581,7 @@ function renderHouseView() {
   const outsideScene = document.getElementById('outside-scene');
   const canvasEl = document.getElementById('room-canvas');
   const bubbleLayer = document.getElementById('speech-bubbles-layer');
+  const houseScreen = document.getElementById('screen-house');
   const view = getHouseView();
 
   renderHouseViewToggle();
@@ -489,6 +598,7 @@ function renderHouseView() {
 
   if (canvasEl) canvasEl.classList.toggle('hidden', view !== 'inside');
   if (bubbleLayer) bubbleLayer.classList.toggle('hidden', view !== 'inside');
+  if (houseScreen) houseScreen.classList.toggle('outside-active', view === 'outside');
 
   if (view !== 'outside' && outsideAnimId) {
     cancelAnimationFrame(outsideAnimId);
@@ -803,6 +913,7 @@ setOnTileTap((tile) => {
 function openFurniturePlaceModal(tx, ty) {
   const s = getState();
   const owned = getUnlockedIds(s, 'furniture');
+  const availableBuilders = getAvailableBuilders(s);
 
   let itemsHTML = '<div class="furniture-grid">';
   for (const f of allFurniture) {
@@ -816,6 +927,7 @@ function openFurniturePlaceModal(tx, ty) {
     const canUnlock = fits && !!recipeResearch && canUnlockResearch(s, recipeResearch);
     const canCraft = fits && hasRecipe && f.craft &&
       Object.entries(f.craft.cost || {}).every(([k, v]) => (s.resources[k] || 0) >= v);
+    const hasBuilder = availableBuilders.length > 0;
     const buyLabel = f.buy
       ? Object.entries(f.buy.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ')
       : '–';
@@ -826,8 +938,10 @@ function openFurniturePlaceModal(tx, ty) {
       craftBtnText = `🔓 Rezept freischalten ${unlockCost ? `(${unlockCost} 🔬)` : ''}`;
     } else {
       const costParts = Object.entries(f.craft?.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ');
-      craftBtnClass = canCraft ? 'furniture-craft-btn' : 'furniture-craft-btn btn-too-poor';
-      craftBtnText = `🔨 Bauen ${costParts || ''}`;
+      const buildDuration = formatTime(f.craft?.duration || 0);
+      const builderLabel = hasBuilder ? ` · ${availableBuilders[0].name} baut` : ' · Kein freier Builder';
+      craftBtnClass = canCraft && hasBuilder ? 'furniture-craft-btn' : 'furniture-craft-btn btn-too-poor';
+      craftBtnText = `🔨 Bauen ${costParts || ''}${buildDuration ? ` · ${buildDuration}` : ''}${builderLabel}`;
     }
 
     itemsHTML += `
@@ -840,7 +954,7 @@ function openFurniturePlaceModal(tx, ty) {
             <button class="furniture-buy-btn ${canBuy ? '' : 'btn-too-poor'}" data-id="${f.id}" ${!fits ? 'disabled' : ''}>
               🛒 ${buyLabel}
             </button>
-            <button class="${craftBtnClass}" data-id="${recipeResearch?.id || f.id}" ${!fits || (!hasRecipe && !recipeResearch) ? 'disabled' : ''}>
+            <button class="${craftBtnClass}" data-id="${recipeResearch?.id || f.id}" ${!fits || (!hasRecipe && !recipeResearch) || (hasRecipe && !hasBuilder) ? 'disabled' : ''}>
               ${craftBtnText}
             </button>
           </div>
@@ -918,21 +1032,22 @@ function openFurniturePlaceModal(tx, ty) {
       if (!fDef || !fDef.craft) return;
       const cur = getState();
       const canAffordCraft = Object.entries(fDef.craft.cost || {}).every(([k, v]) => (cur.resources[k] || 0) >= v);
-      if (!canAffordCraft) {
+      const builder = getAvailableBuilders(cur)[0];
+      if (!canAffordCraft || !builder) {
         btn.classList.add('btn-shake');
         setTimeout(() => btn.classList.remove('btn-shake'), 400);
         return;
       }
       mutate(s => {
-        for (const [k, v] of Object.entries(fDef.craft.cost || {}))
-          s.resources[k] = (s.resources[k] || 0) - v;
-        s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
+        startFurnitureBuild(s, fDef, { room: currentRoomIndex, tx, ty }, [builder.id]);
       });
       closeModal();
       placingFurnitureMode = false;
       updateResourceBar();
       updateResearchUI();
+      updateActivityBadge();
       renderAlphaPanel();
+      renderHouseView();
       setupRoom(currentRoomIndex);
     });
   });
@@ -948,6 +1063,17 @@ function checkFurnitureFits(tx, ty, size) {
     const ps = pDef.size || { w: 1, d: 1 };
     if (tx < p.tx + ps.w && tx + size.w > p.tx &&
         ty < p.ty + ps.d && ty + size.d > p.ty) {
+      return false;
+    }
+  }
+  for (const pending of getPendingFurnitureBuilds(s)) {
+    const build = pending.build;
+    if ((build.room || 0) !== currentRoomIndex) continue;
+    const pDef = furnitureMap[build.furniture_id];
+    if (!pDef) continue;
+    const ps = pDef.size || { w: 1, d: 1 };
+    if (tx < build.tx + ps.w && tx + size.w > build.tx &&
+        ty < build.ty + ps.d && ty + size.d > build.ty) {
       return false;
     }
   }
@@ -1011,7 +1137,9 @@ if (offlineCompletions.length > 0) {
     } else if (c.type === 'room_built') {
       msg += `<div class="offline-item">🏠 Neues Zimmer gebaut! (${c.rooms} Räume)</div>`;
     } else if (c.type === 'research_progress') {
-      msg += `<div class="offline-item">🔬 Forschung abgeschlossen! (${c.progress}/100 Punkte)</div>`;
+      msg += `<div class="offline-item">🔬 Forschung abgeschlossen! (+${c.amount || RESEARCH_POINTS_PER_RUN} Punkte, jetzt ${c.progress} gesamt)</div>`;
+    } else if (c.type === 'furniture_built') {
+      msg += `<div class="offline-item">🪑 ${c.furnitureName} wurde fertig gebaut.</div>`;
     }
   }
   msg += '</div>';
@@ -1567,7 +1695,7 @@ function startActivityChecker() {
 startActivityChecker();
 
 // ---- Produktions-Tick (1×/s) ----
-// Ressourcen laufen kontinuierlich, kein Warten auf Payout.
+// Ressourcen laufen kontinuierlich, die UI aktualisiert sich ebenfalls sekündlich.
 setInterval(() => {
   mutate(s => applyTick(s));
   updateResourceBar();
@@ -1578,7 +1706,7 @@ setInterval(() => {
 }, 1000);
 
 /**
- * Zeigt die aktuelle Produktionsrate (+X/h) neben jedem Ressourcen-Icon.
+ * Zeigt die aktuelle Produktionsrate (+X/min) neben jedem Ressourcen-Icon.
  * Injiziert einen <span class="resource-rate"> falls noch nicht vorhanden.
  */
 function updateProductionRates() {
@@ -1733,6 +1861,9 @@ function openActivityModal() {
     s.activities.forEach((act, idx) => {
       const def = getActivityDef(act.id);
       const progress = getProgress(act);
+      const activityName = act.unlocks === 'furniture_build'
+        ? `Bau: ${act.build?.furniture_name || 'Möbel'}`
+        : (def ? def.name : act.id);
       const workerNames = act.workers.map(id => {
         const c = getCharacter(id);
         return c ? c.name : id;
@@ -1745,7 +1876,11 @@ function openActivityModal() {
         metaRight = `${formatTime(remaining)} verbleibend`;
       } else if (act.unlocks === 'research_progress') {
         const remaining = getRemainingTime(act);
-        metaRight = `${formatTime(remaining)} bis +25 🔬`;
+        metaRight = `${formatTime(remaining)} bis +${RESEARCH_POINTS_PER_RUN} 🔬`;
+      } else if (act.unlocks === 'furniture_build') {
+        const remaining = getRemainingTime(act);
+        const buildName = act.build?.furniture_name || 'Möbelbau';
+        metaRight = `${formatTime(remaining)} bis ${buildName}`;
       } else {
         const rateStr = Object.entries(getOutputRate(act)).map(([k, perSec]) => {
           const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
@@ -1756,7 +1891,7 @@ function openActivityModal() {
 
       activeHTML += `
         <div class="activity-item active-activity">
-          <div class="activity-name">${def ? def.name : act.id}</div>
+          <div class="activity-name">${activityName}</div>
           <div class="activity-meta">
             ${workerNames} · ${metaRight}
           </div>
@@ -1796,7 +1931,7 @@ function openActivityModal() {
               return `${icons[k] || ''}${formatRate(perSec)}`;
             }).join(', ');
           })()
-        : (def.unlocks === 'room_slot' ? '🏠 Neues Zimmer' : def.unlocks === 'research_progress' ? '🔬 +25 Forschung' : '–');
+        : (def.unlocks === 'room_slot' ? '🏠 Neues Zimmer' : def.unlocks === 'research_progress' ? `🔬 +${RESEARCH_POINTS_PER_RUN} Forschung` : '–');
 
       const durationStr = formatTime(def.duration_base);
 
@@ -1830,7 +1965,16 @@ function openActivityModal() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.index);
-      mutate(s => removeActivity(s, idx));
+      mutate(s => {
+        const act = s.activities[idx];
+        if (act?.unlocks === 'furniture_build' && act.build?.furniture_id) {
+          const furnitureDef = furnitureMap[act.build.furniture_id];
+          for (const [key, value] of Object.entries(furnitureDef?.craft?.cost || {})) {
+            s.resources[key] = (s.resources[key] || 0) + value;
+          }
+        }
+        removeActivity(s, idx);
+      });
       updateResourceBar();
       updateResearchUI();
       renderAlphaPanel();
@@ -2234,6 +2378,11 @@ function openResearchModal() {
   const researchables = getAllResearchDefs()
     .filter((entry) => entry.category === 'furniture')
     .sort((a, b) => a.cost - b.cost);
+  const nextUnlockCost = researchables
+    .filter((entry) => !unlocked.has(entry.id))
+    .map((entry) => entry.cost || 0)
+    .sort((a, b) => a - b)[0] || 1;
+  const progressToNextUnlock = Math.min(100, (points / nextUnlockCost) * 100);
 
   const cards = researchables.map((entry) => {
     const cost = entry.cost || 0;
@@ -2265,14 +2414,14 @@ function openResearchModal() {
       <span class="modal-title">Forschung</span>
       <button class="modal-close">✕</button>
     </div>
-    <div class="research-summary">
+      <div class="research-summary">
       <div class="research-hero">
         <div class="research-hero-top">
           <div class="research-hero-title">Forschungspunkte</div>
-          <div class="research-hero-points">${points} / 100 🔬</div>
+          <div class="research-hero-points">${points} 🔬</div>
         </div>
-        <div class="research-bar"><div class="research-bar-fill" style="width:${Math.min(100, points)}%"></div></div>
-        <div class="research-hero-hint">Schicke Figuren auf „Forschen“, um jeweils 25 Punkte zu erhalten. Punkte werden beim Freischalten von Möbel-Rezepten verbraucht.</div>
+        <div class="research-bar"><div class="research-bar-fill" style="width:${progressToNextUnlock}%"></div></div>
+        <div class="research-hero-hint">Schicke Figuren auf „Forschen“, um pro Run ${RESEARCH_POINTS_PER_RUN} Punkte zu erhalten. Baupläne sind jetzt deutlich teurer und werden Stück für Stück freigeschaltet.</div>
       </div>
       <div class="research-section-title">Baupläne</div>
       <div class="research-card-list">${cards || '<div class="activity-empty">Noch keine Forschungsobjekte vorhanden.</div>'}</div>

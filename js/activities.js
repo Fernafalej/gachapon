@@ -4,6 +4,7 @@ import { getCharacter } from './characters.js?v=20260419b';
 
 const activityMap = {};
 for (const a of allActivities) activityMap[a.id] = a;
+export const RESEARCH_POINTS_PER_RUN = 8;
 
 export function getActivityDef(id) { return activityMap[id] || null; }
 export function getAllActivityDefs() { return allActivities; }
@@ -106,11 +107,78 @@ export function getTotalProductionRates(state) {
   return rates;
 }
 
-/** Rate als lesbaren String. Werte in diesem Spiel sind klein → /h. */
+/** Rate als lesbaren String. Werte in diesem Spiel sind klein → /min. */
 export function formatRate(perSec) {
-  const perHour = perSec * 3600;
-  if (perHour === 0) return '';
-  return perHour >= 10 ? `+${Math.round(perHour)}/h` : `+${perHour.toFixed(1)}/h`;
+  const perMinute = perSec * 60;
+  if (perMinute === 0) return '';
+  return perMinute >= 10 ? `+${Math.round(perMinute)}/min` : `+${perMinute.toFixed(1)}/min`;
+}
+
+export function startFurnitureBuild(state, furnitureDef, placement, workerIds) {
+  if (!furnitureDef?.craft || !placement) return null;
+  if (!workerIds || workerIds.length < 1) return null;
+  const busy = getBusyWorkers(state);
+  for (const workerId of workerIds) if (busy.has(workerId)) return null;
+
+  for (const [res, amount] of Object.entries(furnitureDef.craft.cost || {})) {
+    if ((state.resources[res] || 0) < amount) return null;
+  }
+
+  for (const [res, amount] of Object.entries(furnitureDef.craft.cost || {})) {
+    state.resources[res] = (state.resources[res] || 0) - amount;
+  }
+
+  const activity = {
+    id: 'craft_furniture',
+    workers: workerIds,
+    started: Math.floor(Date.now() / 1000),
+    duration: Math.round(furnitureDef.craft.duration || 300),
+    elapsed: 0,
+    output: null,
+    unlocks: 'furniture_build',
+    build: {
+      furniture_id: furnitureDef.id,
+      furniture_name: furnitureDef.name || furnitureDef.id,
+      room: placement.room || 0,
+      tx: placement.tx,
+      ty: placement.ty,
+    },
+  };
+  state.activities.push(activity);
+  return activity;
+}
+
+function finishActivity(state, activity, completions) {
+  if (activity.unlocks === 'room_slot') {
+    state.house.rooms = (state.house.rooms || 1) + 1;
+    completions.push({ type: 'room_built', rooms: state.house.rooms });
+    return true;
+  }
+
+  if (activity.unlocks === 'research_progress') {
+    if (!state.research) state.research = { progress: 0 };
+    state.research.progress = (state.research.progress || 0) + RESEARCH_POINTS_PER_RUN;
+    completions.push({ type: 'research_progress', progress: state.research.progress, amount: RESEARCH_POINTS_PER_RUN });
+    return true;
+  }
+
+  if (activity.unlocks === 'furniture_build' && activity.build) {
+    const placement = {
+      room: activity.build.room || 0,
+      furniture_id: activity.build.furniture_id,
+      tx: activity.build.tx,
+      ty: activity.build.ty,
+    };
+    state.house.placements.push(placement);
+    completions.push({
+      type: 'furniture_built',
+      furnitureId: activity.build.furniture_id,
+      furnitureName: activity.build.furniture_name || activity.build.furniture_id,
+    });
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -170,17 +238,12 @@ export function applyOfflineProgress(state) {
 
     if (activity.unlocks === 'room_slot') {
       activity.elapsed = (activity.elapsed || 0) + delta;
-      if (activity.elapsed >= activity.duration) {
-        state.house.rooms = (state.house.rooms || 1) + 1;
-        completions.push({ type: 'room_built', rooms: state.house.rooms });
+      if (activity.elapsed >= activity.duration && finishActivity(state, activity, completions)) {
         state.activities.splice(i, 1);
       }
-    } else if (activity.unlocks === 'research_progress') {
+    } else if (activity.unlocks === 'research_progress' || activity.unlocks === 'furniture_build') {
       activity.elapsed = (activity.elapsed || 0) + delta;
-      if (activity.elapsed >= activity.duration) {
-        if (!state.research) state.research = { progress: 0, unlocked: [] };
-        state.research.progress = Math.min(100, (state.research.progress || 0) + 25);
-        completions.push({ type: 'research_progress', progress: state.research.progress });
+      if (activity.elapsed >= activity.duration && finishActivity(state, activity, completions)) {
         state.activities.splice(i, 1);
       }
     }
@@ -199,18 +262,12 @@ export function checkCompletions(state) {
   const completions = [];
   for (let i = state.activities.length - 1; i >= 0; i--) {
     const activity = state.activities[i];
-    if (activity.unlocks !== 'room_slot' && activity.unlocks !== 'research_progress') continue;
+    if (activity.unlocks !== 'room_slot' && activity.unlocks !== 'research_progress' && activity.unlocks !== 'furniture_build') continue;
     const elapsed = (now - activity.started) + (activity.elapsed || 0);
     if (elapsed >= activity.duration) {
-      if (activity.unlocks === 'room_slot') {
-        state.house.rooms = (state.house.rooms || 1) + 1;
-        completions.push({ type: 'room_built', rooms: state.house.rooms });
-      } else if (activity.unlocks === 'research_progress') {
-        if (!state.research) state.research = { progress: 0, unlocked: [] };
-        state.research.progress = Math.min(100, (state.research.progress || 0) + 25);
-        completions.push({ type: 'research_progress', progress: state.research.progress });
+      if (finishActivity(state, activity, completions)) {
+        state.activities.splice(i, 1);
       }
-      state.activities.splice(i, 1);
     }
   }
   return completions;

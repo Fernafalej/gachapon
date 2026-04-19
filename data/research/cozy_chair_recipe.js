@@ -2,7 +2,7 @@ export default {
   id: 'cozy_chair_recipe',
   name: 'Gemuetlicher Stuhl',
   category: 'furniture',
-  cost: 10,
+  cost: 40,
   unlocks: [
     { type: 'furniture', id: 'cozy_chair' },
   ],

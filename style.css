@@ -123,6 +123,12 @@ html, body {
   position: relative;
 }
 
+#screen-house.outside-active {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
 #room-canvas {
   display: block;
   width: 100%;
@@ -141,7 +147,9 @@ html, body {
   position: absolute;
   inset: 0;
   z-index: 4;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 #house-view-toggle {
@@ -393,9 +401,16 @@ html, body {
   cursor: pointer;
 }
 
+.outside-scroll {
+  position: relative;
+  min-height: calc(100% + 220px);
+  padding-bottom: 112px;
+}
+
 .outside-scene-backdrop {
   position: absolute;
-  inset: 0;
+  inset: 0 0 auto 0;
+  height: 760px;
   background:
     radial-gradient(circle at top right, rgba(255,255,255,0.95) 0, rgba(255,255,255,0) 32%),
     linear-gradient(180deg, #dff4ff 0%, #fef7dc 48%, #d7efc3 49%, #b4d88e 100%);
@@ -448,10 +463,7 @@ html, body {
 }
 
 .outside-header {
-  position: absolute;
-  top: 122px;
-  left: 14px;
-  right: 14px;
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -478,17 +490,140 @@ html, body {
   min-width: 124px;
 }
 
-.outside-station-grid {
+.outside-hero {
+  position: relative;
+  z-index: 2;
+  padding: 122px 12px 24px;
+}
+
+.outside-world {
+  position: relative;
+  min-height: 430px;
+  margin-top: 20px;
+  border-radius: 28px;
+  border: 1px solid rgba(93, 123, 53, 0.12);
+  background:
+    radial-gradient(circle at 20% 16%, rgba(255,255,255,0.42) 0, rgba(255,255,255,0) 24%),
+    linear-gradient(180deg, rgba(255,255,255,0.36) 0%, rgba(236, 248, 212, 0.16) 54%, rgba(120, 163, 78, 0.14) 100%);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+}
+
+.outside-world::before {
+  content: '';
   position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 220px;
-  bottom: 96px;
+  left: -8%;
+  right: -8%;
+  bottom: 0;
+  height: 42%;
+  background:
+    radial-gradient(circle at 18% 100%, rgba(173, 214, 122, 0.86) 0, rgba(173, 214, 122, 0.86) 34%, transparent 35%),
+    radial-gradient(circle at 52% 100%, rgba(144, 194, 90, 0.9) 0, rgba(144, 194, 90, 0.9) 33%, transparent 34%),
+    radial-gradient(circle at 82% 100%, rgba(123, 171, 76, 0.94) 0, rgba(123, 171, 76, 0.94) 32%, transparent 33%);
+}
+
+.outside-world::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34%;
+  background: linear-gradient(180deg, rgba(147, 193, 95, 0.12) 0%, rgba(131, 180, 80, 0.3) 24%, rgba(116, 163, 70, 0.86) 25%, rgba(100, 146, 59, 0.96) 100%);
+}
+
+.outside-station-grid {
+  position: relative;
+  margin: 0 12px;
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   z-index: 2;
+}
+
+.outside-zone {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(74, 55, 40, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 251, 241, 0.9);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  font-weight: 800;
+  z-index: 2;
+}
+
+.outside-zone.is-active {
+  border-color: rgba(93, 123, 53, 0.28);
+  box-shadow: 0 12px 24px rgba(79, 112, 44, 0.18);
+}
+
+.outside-zone-icon {
+  font-size: 18px;
+}
+
+.outside-zone-label {
+  white-space: nowrap;
+}
+
+.outside-actors-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.outside-actor {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  width: 86px;
+  text-align: center;
+  animation: outsideActorFloat 3.6s ease-in-out infinite;
+}
+
+.outside-actor:nth-child(2n) {
+  animation-duration: 4.2s;
+}
+
+.outside-actor:nth-child(3n) {
+  animation-duration: 4.8s;
+}
+
+.outside-actor-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 3px 9px;
+  margin-bottom: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #4f6f2e;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: var(--shadow);
+}
+
+.outside-actor-canvas {
+  width: 72px;
+  height: 84px;
+  display: block;
+  margin: 0 auto;
+  filter: drop-shadow(0 8px 10px rgba(74, 55, 40, 0.16));
+}
+
+.outside-actor-name {
+  margin-top: -4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: white;
+  text-shadow: 0 1px 3px rgba(62, 90, 36, 0.35);
 }
 
 .outside-plot {
@@ -626,7 +761,6 @@ html, body {
 
 @media (max-width: 440px) {
   .outside-header {
-    top: 116px;
     flex-direction: column;
   }
 
@@ -638,14 +772,27 @@ html, body {
     width: 100%;
   }
 
+  .outside-hero {
+    padding-top: 116px;
+  }
+
+  .outside-world {
+    min-height: 500px;
+  }
+
   .outside-station-grid {
-    top: 240px;
     grid-template-columns: 1fr;
   }
 
   .outside-plot-garden-bed {
     grid-column: auto;
   }
+}
+
+@keyframes outsideActorFloat {
+  0% { transform: translate(-50%, -100%) translateY(0); }
+  50% { transform: translate(-50%, -100%) translateY(-5px); }
+  100% { transform: translate(-50%, -100%) translateY(0); }
 }
 
 @keyframes bubbleFade {
@@ -1625,10 +1772,6 @@ html, body {
 .research-unlock-btn {
   margin-top: 12px;
   width: 100%;
-}
-
-.outside-hero {
-  background: linear-gradient(135deg, #eff9ed 0%, #fff6e7 100%);
 }
 
 .outside-station-list {
