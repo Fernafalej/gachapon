@@ -2,7 +2,7 @@ export default {
   id: 'plant_recipe',
   name: 'Topfpflanze',
   category: 'furniture',
-  cost: 10,
+  cost: 12,
   unlocks: [
     { type: 'furniture', id: 'plant' },
   ],

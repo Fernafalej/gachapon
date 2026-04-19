@@ -78,11 +78,11 @@ const OUTSIDE_STATION_CONFIG = {
   },
 };
 const OUTSIDE_IDLE_SLOTS = [
-  { x: 12, y: 77 },
-  { x: 28, y: 84 },
-  { x: 63, y: 82 },
-  { x: 83, y: 76 },
-  { x: 50, y: 60 },
+  { x: 10, y: 74 },
+  { x: 24, y: 87 },
+  { x: 50, y: 89 },
+  { x: 76, y: 79 },
+  { x: 90, y: 71 },
 ];
 
 // ---- App Start ----
@@ -173,6 +173,45 @@ function buildFurnitureForRoom(placements) {
   }).filter(Boolean);
 }
 
+function drawConstructionPlaceholder(ctx, tx, ty, furnitureDef) {
+  const w = (furnitureDef?.size?.w || 1) * 18 + 16;
+  const h = (furnitureDef?.size?.d || 1) * 10 + 12;
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  ctx.fillStyle = 'rgba(255, 246, 223, 0.92)';
+  ctx.beginPath();
+  ctx.moveTo(tx, ty - h / 2);
+  ctx.lineTo(tx + w / 2, ty);
+  ctx.lineTo(tx, ty + h / 2);
+  ctx.lineTo(tx - w / 2, ty);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(146, 103, 52, 0.32)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.strokeStyle = '#C5873E';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(tx - w / 3, ty - h / 5);
+  ctx.lineTo(tx + w / 3, ty + h / 5);
+  ctx.moveTo(tx - w / 3, ty + h / 5);
+  ctx.lineTo(tx + w / 3, ty - h / 5);
+  ctx.stroke();
+
+  ctx.fillStyle = '#8A5B2C';
+  ctx.fillRect(tx - 2, ty - h / 2 - 18, 4, 18);
+  ctx.fillStyle = '#F3C96B';
+  ctx.beginPath();
+  ctx.moveTo(tx - 12, ty - h / 2 - 18);
+  ctx.lineTo(tx + 12, ty - h / 2 - 18);
+  ctx.lineTo(tx + 8, ty - h / 2 - 28);
+  ctx.lineTo(tx - 8, ty - h / 2 - 28);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 function getResearchPoints(state = getState()) {
   return Math.floor(state?.research?.progress || 0);
 }
@@ -192,6 +231,21 @@ function getAvailableBuilders(state = getState()) {
 
 function getPendingFurnitureBuilds(state = getState()) {
   return (state.activities || []).filter((activity) => activity.unlocks === 'furniture_build' && activity.build);
+}
+
+function findPendingFurnitureBuildAt(tx, ty, state = getState()) {
+  for (const pending of getPendingFurnitureBuilds(state)) {
+    const build = pending.build;
+    if ((build.room || 0) !== currentRoomIndex) continue;
+    const def = furnitureMap[build.furniture_id];
+    if (!def) continue;
+    const size = def.size || { w: 1, d: 1 };
+    if (tx >= build.tx && tx < build.tx + size.w &&
+        ty >= build.ty && ty < build.ty + size.d) {
+      return pending;
+    }
+  }
+  return null;
 }
 
 function getRecipeResearchDef(furnitureId) {
@@ -246,7 +300,22 @@ function setupRoom(roomIndex) {
 
   // Always build furniture from state – no separate demo path
   const placements = (s.house.placements || []).filter(p => (p.room || 0) === currentRoomIndex);
-  const furniture = buildFurnitureForRoom(placements);
+  const pendingBuilds = getPendingFurnitureBuilds(s)
+    .filter((activity) => (activity.build?.room || 0) === currentRoomIndex)
+    .map((activity) => {
+      const def = furnitureMap[activity.build?.furniture_id];
+      if (!def) return null;
+      return {
+        tx: activity.build.tx,
+        ty: activity.build.ty,
+        size: def.size || { w: 1, d: 1 },
+        draw: (roomCtx, drawX, drawY) => drawConstructionPlaceholder(roomCtx, drawX, drawY, def),
+        id: `pending-${activity.build.furniture_id}`,
+        flat: def.id === 'rug',
+      };
+    })
+    .filter(Boolean);
+  const furniture = [...buildFurnitureForRoom(placements), ...pendingBuilds];
 
   initRoom(chars, drawCharacter, furniture);
   updateRoomIndicator();
@@ -405,6 +474,7 @@ function getOutsideSummary(state = getState()) {
       return {
         id: workerId,
         name: char.name,
+        species: char.species,
         pose: index % 2 === 0 ? 'idle' : 'walk',
         dir: index % 2,
         x: slot.x,
@@ -425,6 +495,7 @@ function getOutsideSummary(state = getState()) {
         status: station.title,
         type: 'active',
         accent: station.accent,
+        species: getCharacter(worker.id)?.species || 'unknown',
       };
     })
   );
@@ -531,9 +602,10 @@ function renderOutsideScene() {
 
           <div class="outside-actors-layer">
             ${outside.residents.map((resident, index) => `
-              <div class="outside-actor outside-actor-${resident.type}" style="left:${resident.x}%; top:${resident.y}%;" data-actor-index="${index}">
-                <div class="outside-actor-badge">${resident.status}</div>
-                <canvas class="outside-actor-canvas" width="72" height="84" data-worker-id="${resident.id}" data-pose="${resident.pose}" data-dir="${resident.dir}"></canvas>
+              <div class="outside-actor outside-actor-${resident.type}" style="left:${resident.x}%; top:${resident.y}%;" data-actor-index="${index}" data-species="${resident.species}">
+                ${resident.type === 'active' ? `<div class="outside-actor-badge">${resident.status}</div>` : ''}
+                <div class="outside-actor-shadow ${resident.species === 'slime' ? 'is-slime' : ''}"></div>
+                <canvas class="outside-actor-canvas" width="72" height="84" data-worker-id="${resident.id}" data-pose="${resident.pose}" data-dir="${resident.dir}" data-species="${resident.species}"></canvas>
                 <div class="outside-actor-name">${resident.name}</div>
               </div>
             `).join('')}
@@ -902,8 +974,11 @@ function openGameMenuModal(activeSection = 'overview') {
 setOnTileTap((tile) => {
   if (placingFurnitureMode) {
     const existing = findFurnitureAt(tile.tx, tile.ty);
+    const pendingBuild = findPendingFurnitureBuildAt(tile.tx, tile.ty);
     if (existing) {
       openFurnitureManageModal(existing, tile);
+    } else if (pendingBuild) {
+      openPendingBuildModal(pendingBuild);
     } else {
       openFurniturePlaceModal(tile.tx, tile.ty);
     }
@@ -920,28 +995,25 @@ function openFurniturePlaceModal(tx, ty) {
     const fits = checkFurnitureFits(tx, ty, f.size || { w: 1, d: 1 });
     const hasRecipe = owned.includes(f.id);
     const recipeResearch = getRecipeResearchDef(f.id);
-    // Generisch: alle Ressourcen in den Cost-Objekten prüfen
-    const canBuy = fits && f.buy &&
-      Object.entries(f.buy.cost || {}).every(([k, v]) => (s.resources[k] || 0) >= v);
     const unlockCost = recipeResearch?.cost || 0;
     const canUnlock = fits && !!recipeResearch && canUnlockResearch(s, recipeResearch);
     const canCraft = fits && hasRecipe && f.craft &&
       Object.entries(f.craft.cost || {}).every(([k, v]) => (s.resources[k] || 0) >= v);
     const hasBuilder = availableBuilders.length > 0;
-    const buyLabel = f.buy
-      ? Object.entries(f.buy.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ')
-      : '–';
 
     let craftBtnClass, craftBtnText;
+    let helperText = '';
     if (!hasRecipe) {
       craftBtnClass = canUnlock ? 'furniture-unlock-btn' : 'furniture-unlock-btn btn-too-poor';
       craftBtnText = `🔓 Rezept freischalten ${unlockCost ? `(${unlockCost} 🔬)` : ''}`;
+      helperText = `Forschung nötig${unlockCost ? ` · ${unlockCost} Punkte` : ''}`;
     } else {
       const costParts = Object.entries(f.craft?.cost || {}).map(([k, v]) => `${v} ${RES_ICONS[k] || k}`).join(' + ');
       const buildDuration = formatTime(f.craft?.duration || 0);
       const builderLabel = hasBuilder ? ` · ${availableBuilders[0].name} baut` : ' · Kein freier Builder';
       craftBtnClass = canCraft && hasBuilder ? 'furniture-craft-btn' : 'furniture-craft-btn btn-too-poor';
       craftBtnText = `🔨 Bauen ${costParts || ''}${buildDuration ? ` · ${buildDuration}` : ''}${builderLabel}`;
+      helperText = hasBuilder ? 'Wird erst gebaut und dann aufgestellt' : 'Ein freier Builder fehlt gerade';
     }
 
     itemsHTML += `
@@ -950,10 +1022,8 @@ function openFurniturePlaceModal(tx, ty) {
         <div class="furniture-option-info">
           <div class="furniture-name">${f.name}</div>
           <div class="furniture-size">${f.size.w}×${f.size.d}${!fits ? ' · passt hier nicht' : ''}</div>
+          <div class="furniture-size">${helperText}</div>
           <div class="furniture-actions">
-            <button class="furniture-buy-btn ${canBuy ? '' : 'btn-too-poor'}" data-id="${f.id}" ${!fits ? 'disabled' : ''}>
-              🛒 ${buyLabel}
-            </button>
             <button class="${craftBtnClass}" data-id="${recipeResearch?.id || f.id}" ${!fits || (!hasRecipe && !recipeResearch) || (hasRecipe && !hasBuilder) ? 'disabled' : ''}>
               ${craftBtnText}
             </button>
@@ -983,33 +1053,6 @@ function openFurniturePlaceModal(tx, ty) {
       fDef.draw(fCtx, 32, 48);
       fCtx.restore();
     }
-  });
-
-  // Buy buttons – all of them, check affordability in handler
-  document.querySelectorAll('.furniture-buy-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const fId = btn.dataset.id;
-      const fDef = furnitureMap[fId];
-      if (!fDef || !fDef.buy) return;
-      const cur = getState();
-      const canAffordBuy = Object.entries(fDef.buy.cost || {}).every(([k, v]) => (cur.resources[k] || 0) >= v);
-      if (!canAffordBuy) {
-        btn.classList.add('btn-shake');
-        setTimeout(() => btn.classList.remove('btn-shake'), 400);
-        return;
-      }
-      mutate(s => {
-        for (const [k, v] of Object.entries(fDef.buy.cost || {}))
-          s.resources[k] = (s.resources[k] || 0) - v;
-        s.house.placements.push({ room: currentRoomIndex, furniture_id: fId, tx, ty });
-      });
-      closeModal();
-      placingFurnitureMode = false;
-      updateResourceBar();
-      updateResearchUI();
-      renderAlphaPanel();
-      setupRoom(currentRoomIndex);
-    });
   });
 
   document.querySelectorAll('.furniture-unlock-btn').forEach(btn => {
@@ -1051,6 +1094,31 @@ function openFurniturePlaceModal(tx, ty) {
       setupRoom(currentRoomIndex);
     });
   });
+}
+
+function openPendingBuildModal(activity) {
+  const build = activity.build || {};
+  const def = furnitureMap[build.furniture_id];
+  const progress = Math.round(getProgress(activity) * 100);
+  const remaining = formatTime(getRemainingTime(activity));
+  const workerNames = (activity.workers || [])
+    .map((id) => getCharacter(id)?.name || id)
+    .join(', ');
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">${build.furniture_name || def?.name || 'Möbelbau'}</span>
+      <button class="modal-close">✕</button>
+    </div>
+    <div class="activity-item active-activity">
+      <div class="activity-name">Im Aufbau</div>
+      <div class="activity-meta">${workerNames || 'Ein Worker'} · ${remaining} verbleibend</div>
+      <div class="activity-progress-bar">
+        <div class="activity-progress-fill" style="width: ${progress}%"></div>
+      </div>
+    </div>
+    <div class="alpha-panel-copy">Dieses Möbel wird gerade gebaut und stellt sich nach Abschluss automatisch auf dieses Tile.</div>
+  `);
 }
 
 function checkFurnitureFits(tx, ty, size) {

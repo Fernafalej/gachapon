@@ -5,7 +5,7 @@ export default {
   type: 'permanent',
   pose: 'craft',
   workers: { min: 1, max: 3 },
-  duration_base: 480,
+  duration_base: 600,
   duration_scaling: 'linear',
   cost: null,
   output: { fabric: 2 },

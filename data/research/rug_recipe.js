@@ -2,7 +2,7 @@ export default {
   id: 'rug_recipe',
   name: 'Teppich',
   category: 'furniture',
-  cost: 14,
+  cost: 16,
   unlocks: [
     { type: 'furniture', id: 'rug' },
   ],

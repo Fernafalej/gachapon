@@ -1,7 +1,7 @@
 export default {
   id: 'rug', name: 'Teppich', size: { w: 2, d: 2 },
   buy: { cost: { fabric: 12 } },
-  craft: { cost: { wood: 2, fabric: 5 }, duration: 450 },
+  craft: { cost: { wood: 2, fabric: 5 }, duration: 600 },
   draw(ctx, tx, ty) {
     ctx.fillStyle = '#D4A0A8'; ctx.globalAlpha = 0.7;
     ctx.beginPath(); ctx.moveTo(tx,ty-8); ctx.lineTo(tx+18,ty+1); ctx.lineTo(tx,ty+10); ctx.lineTo(tx-18,ty+1); ctx.closePath(); ctx.fill();

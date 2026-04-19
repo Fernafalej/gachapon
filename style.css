@@ -549,13 +549,13 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 9px 12px;
   border: 1px solid rgba(74, 55, 40, 0.08);
   border-radius: 999px;
   background: rgba(255, 251, 241, 0.9);
   color: var(--text);
   box-shadow: var(--shadow);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   z-index: 2;
 }
@@ -582,7 +582,7 @@ html, body {
 .outside-actor {
   position: absolute;
   transform: translate(-50%, -100%);
-  width: 86px;
+  width: 92px;
   text-align: center;
   animation: outsideActorFloat 3.6s ease-in-out infinite;
 }
@@ -600,14 +600,37 @@ html, body {
   align-items: center;
   justify-content: center;
   min-height: 22px;
-  padding: 3px 9px;
-  margin-bottom: 2px;
+  max-width: 88px;
+  padding: 3px 8px;
+  margin-bottom: 1px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.84);
   color: #4f6f2e;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   box-shadow: var(--shadow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.outside-actor-shadow {
+  width: 42px;
+  height: 12px;
+  margin: 0 auto -12px;
+  border-radius: 999px;
+  background: radial-gradient(circle at center, rgba(58, 82, 30, 0.34) 0, rgba(58, 82, 30, 0.18) 48%, rgba(58, 82, 30, 0) 74%);
+  filter: blur(1.5px);
+}
+
+.outside-actor-shadow.is-slime {
+  width: 54px;
+  height: 18px;
+  margin-bottom: -16px;
+  background: radial-gradient(circle at center, rgba(45, 72, 22, 0.46) 0, rgba(45, 72, 22, 0.26) 52%, rgba(45, 72, 22, 0) 78%);
+  filter: blur(2.4px);
 }
 
 .outside-actor-canvas {
@@ -615,15 +638,27 @@ html, body {
   height: 84px;
   display: block;
   margin: 0 auto;
-  filter: drop-shadow(0 8px 10px rgba(74, 55, 40, 0.16));
+  filter: drop-shadow(0 7px 8px rgba(74, 55, 40, 0.12));
 }
 
 .outside-actor-name {
-  margin-top: -4px;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  max-width: 88px;
+  padding: 3px 8px;
+  margin-top: -6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(3px);
+  font-size: 10px;
   font-weight: 800;
   color: white;
   text-shadow: 0 1px 3px rgba(62, 90, 36, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .outside-plot {
@@ -777,7 +812,16 @@ html, body {
   }
 
   .outside-world {
-    min-height: 500px;
+    min-height: 520px;
+  }
+
+  .outside-zone {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  .outside-actor {
+    width: 86px;
   }
 
   .outside-station-grid {

@@ -5,7 +5,7 @@ export default {
   type: 'countdown',
   pose: 'think',
   workers: { min: 1, max: 2 },
-  duration_base: 300,
+  duration_base: 360,
   duration_scaling: 'sqrt',
   cost: null,
   output: null,

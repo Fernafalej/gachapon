@@ -5,10 +5,10 @@ export default {
   type: 'permanent',
   pose: 'hard_work',
   workers: { min: 1, max: 2 },
-  duration_base: 420,
+  duration_base: 360,
   duration_scaling: 'linear',
   cost: null,
-  output: { food: 3 },
+  output: { food: 2 },
   unlocks: null,
   room_penalty: 0,
 };

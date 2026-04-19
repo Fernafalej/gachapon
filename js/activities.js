@@ -4,7 +4,7 @@ import { getCharacter } from './characters.js?v=20260419b';
 
 const activityMap = {};
 for (const a of allActivities) activityMap[a.id] = a;
-export const RESEARCH_POINTS_PER_RUN = 8;
+export const RESEARCH_POINTS_PER_RUN = 6;
 
 export function getActivityDef(id) { return activityMap[id] || null; }
 export function getAllActivityDefs() { return allActivities; }

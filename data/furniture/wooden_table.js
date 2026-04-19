@@ -2,7 +2,7 @@ import { isoColors } from '../characters/species/_helpers.js';
 export default {
   id: 'wooden_table', name: 'Holztisch', size: { w: 2, d: 1 },
   buy: { cost: { wood: 10, fabric: 2 } },
-  craft: { cost: { wood: 6, fabric: 2 }, duration: 480 },
+  craft: { cost: { wood: 6, fabric: 2 }, duration: 720 },
   draw(ctx, tx, ty) {
     const c = isoColors('#B88B5A');
     ctx.fillStyle = c.top;
