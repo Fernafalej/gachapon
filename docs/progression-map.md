@@ -258,6 +258,60 @@ Beispiele:
 
 - Leseecke: Teppich + Lampe + Buecherregal
 - Schlafzimmer: Bett + Lampe + Pflanze
+
+## Aktuelle Uebergabe fuer den naechsten Agenten
+
+Diese Punkte haben aktuell Vorrang und sollen in genau dieser Reihenfolge bearbeitet werden.
+
+### 1. Aussenwelt zuerst, Workstations spaeter
+
+- Die Aussenwelt soll zuerst als echte, gut lesbare Umgebung funktionieren.
+- Workstation-Leveling ist aktuell nicht die Prioritaet.
+- Es gibt lokale, noch nicht gepushte Vorarbeiten fuer `js/workstations.js`, `js/state.js`, `js/main.js` und `style.css`.
+- Diese Workstation-Vorarbeiten sollen nur dann weiterverwendet werden, wenn sie den Aussenwelt-Fix direkt helfen. Sonst lieber zurueckstellen.
+
+### 2. Konkretes Ziel fuer die Aussenwelt
+
+Der Aussenbereich soll sich wie eine echte spielbare Welt anfuehlen:
+
+- sauber scrollbar
+- sichtbare Arbeitsstationen direkt in der Szene
+- weniger Overlay-Chaos
+- klar erkennbare Arbeitsorte
+- Tiere sollen sich glaubwuerdig in dieser Welt aufhalten koennen
+
+Wichtig:
+
+- Erst die Aussenwelt visuell und spielerisch fixen.
+- Danach erst aufbauend ueber levelbare Workstations nachdenken.
+
+### 3. Bekannter Bug: Ressourcenleiste aktualisiert sich nicht sauber
+
+Es gibt weiterhin ein offenes Problem mit der Ressourcenanzeige:
+
+- generierte Ressourcen werden in der Ressourcenleiste nicht immer sichtbar regeneriert oder hochgezaehlt
+
+Beim Fix bitte gezielt pruefen:
+
+- `applyTick` in `js/activities.js`
+- `updateResourceBar` in `js/ui.js`
+- `updateProductionRates` in `js/main.js`
+- laufende Aktivitaeten und Render-/State-Synchronisation
+
+### 4. Letzter stabil gepushter Stand
+
+Der letzte bewusst gepushte Gameplay-Stand war:
+
+- Commit `ff4b6cb`
+- Message: `Rebalance progression and add visible furniture construction`
+
+### 5. Lokales Hilfsskript
+
+Im Projekt liegt jetzt ein einfaches lokales Startskript:
+
+- `start-local-server.bat`
+
+Das startet per Doppelklick einen simplen lokalen Server auf `http://localhost:8000`, sofern `py` oder `python` installiert ist.
 - Teestube: Tisch + Stuhl + Pflanze
 
 Belohnungen:
