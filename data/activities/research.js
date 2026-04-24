@@ -4,7 +4,7 @@ export default {
   name: 'Forschen',
   type: 'countdown',
   pose: 'think',
-  workers: { min: 1, max: 2 },
+  workers: { min: 1, max: 3 },
   duration_base: 360,
   duration_scaling: 'sqrt',
   cost: null,

@@ -4,7 +4,7 @@ export default {
   name: 'Nahrung anbauen',
   type: 'permanent',
   pose: 'hard_work',
-  workers: { min: 1, max: 2 },
+  workers: { min: 1, max: 3 },
   duration_base: 360,
   duration_scaling: 'linear',
   cost: null,

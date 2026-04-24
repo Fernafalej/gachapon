@@ -76,6 +76,9 @@ export function loadState() {
 
 export function saveState(state) {
   try {
+    if (state && typeof state === 'object') {
+      state.last_seen = Math.floor(Date.now() / 1000);
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     console.error('State konnte nicht gespeichert werden:', e);
@@ -157,6 +160,7 @@ function migrateState(oldState) {
   };
 
   delete merged.unlocked_recipes;
+  delete merged.workstations;
   if (merged.research) {
     delete merged.research.unlocked;
   }

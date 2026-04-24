@@ -88,11 +88,12 @@ export function initRoom(chars, drawFn, furniture) {
 
   chars.forEach((char, i) => {
     const pos = startPos[i % startPos.length];
+    const initialPose = char.roomPose || 'idle';
     sprites.push({
       char, px: pos.px, py: pos.py,
       targetPx: 0, targetPy: 0,
-      pose: 'idle', dir: 0,
-      idleTimer: 1.5 + Math.random() * 2.5,
+      pose: initialPose, dir: 0,
+      idleTimer: initialPose === 'idle' ? 1.5 + Math.random() * 2.5 : Number.POSITIVE_INFINITY,
       moveSpeed: 0.8 + Math.random() * 0.5,
     });
   });

@@ -4,7 +4,7 @@ export default {
   name: 'Zimmer anbauen',
   type: 'countdown',
   pose: 'hard_work',
-  workers: { min: 1, max: 4 },
+  workers: { min: 1, max: 3 },
   duration_base: 900,
   duration_scaling: 'sqrt',
   cost: { wood: 20, stone: 10 },

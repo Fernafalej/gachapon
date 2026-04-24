@@ -59,6 +59,33 @@ Das bedeutet:
 - Freischaltungen und Interaktionen als Hauptbelohnung
 - Deko als Weltlogik, nicht nur Zahlenbonus
 
+### 5. Datenkapselung und klarer Datenfluss
+
+State, abgeleitete Daten und Rendering sollen klar getrennt bleiben.
+
+Das bedeutet:
+
+- Save-State bleibt die einzige Quelle fuer persistente Wahrheit
+- abgeleitete Ansichten werden ueber klar benannte Funktionen berechnet, zum Beispiel `getOutsideSummary(state)`
+- Renderer bekommen moeglichst fertige View-Daten statt selbst ueberall in globale Strukturen zu greifen
+- UI-Events sollen ueber gezielte Actions oder Update-Funktionen laufen statt ad hoc mehrere State-Bereiche direkt zu veraendern
+
+Empfohlener Datenfluss:
+
+1. `state`
+2. `summary` oder `view model`
+3. `render`
+4. `user action`
+5. gezieltes `state update`
+6. erneutes `render`
+
+Warnsignale fuer fehlende Kapselung:
+
+- dieselbe Information wird in mehreren UI-Schichten getrennt entschieden oder dupliziert dargestellt
+- ein Render-Modul kennt zu viele Details ueber globale State-Strukturen
+- Event-Handler enthalten gleichzeitig DOM-Logik, Geschaeftslogik und Persistenz
+- neue Features fuehren dazu, dass immer mehr Sonderfaelle in `main.js` landen
+
 ## Grundpfeiler
 
 ## 1. Figuren
@@ -340,6 +367,72 @@ Das ist der wichtigste gemeinsame Kleber der Architektur.
 - Systeme bleiben lesbar
 - UI kann leicht filtern und gruppieren
 
+## 6. Freizeit-, Spiel- und Bindungssystem
+
+Spaeter sollte es ein bewusst cozyes Interaktionssystem geben, in dem man aktiv Zeit mit den Bewohnern verbringt.
+Gemeint ist ein Feature aehnlich einer kleinen "Spiel- oder Pflegeecke", in der man mit den Tierchen spielen, sie beschaeftigen oder einfach mit ihnen interagieren kann.
+
+Dieses System soll nicht primaer ein Optimierungswerkzeug sein, sondern:
+
+- Bindung zu Figuren aufbauen
+- Persoenlichkeit sichtbar machen
+- kleine taegliche oder situative Interaktionen bieten
+- neue Animationen, Reaktionen und Sammelziele freischalten
+
+### Ziel des Systems
+
+Das Feature soll den Bewohnern mehr Alltagsleben geben, besonders ausserhalb von Arbeit, Forschung und Abenteuer.
+
+Es eignet sich gut fuer:
+
+- streicheln oder antippen
+- kleine Spielaktionen
+- fuettern oder beschaeftigen
+- Reaktionen zwischen Freunden oder Lieblingsfiguren
+- spaetere Wetter-, Tageszeit- oder Stimmungsanbindung
+
+### Architekturelle Einordnung
+
+Wichtig ist, dass dieses System spaeter nicht als Sondermodus mit harter Einzellogik pro Figur gebaut wird.
+Es sollte auf denselben Datenprinzipien beruhen wie der Rest:
+
+- `traits` beeinflussen, wie Figuren auf Spiel oder Naehe reagieren
+- `likes` bestimmen bevorzugte Aktivitaeten, Orte, Freunde oder Gegenstaende
+- `tags` an Moebeln oder Stationen koennen Interaktionen freischalten
+- `unlocks` koennen neue Freizeitaktionen, Animationen oder Minispiele oeffnen
+
+### Moegliche spaetere Datenbausteine
+
+```js
+interaction_preferences: {
+  activities: ['play', 'snack', 'nap'],
+  furniture_tags: ['soft', 'toy', 'nature'],
+  social: ['slime', 'bunny']
+},
+
+bond_rewards: [
+  { type: 'animation', id: 'happy_spin' },
+  { type: 'cosmetic', id: 'flower_hat' },
+  { type: 'dialogue_pool', id: 'cozy_chat_1' }
+]
+```
+
+### Designregel
+
+Das Freizeit- und Bindungssystem soll vor allem Stimmung, Beziehung und Ausdruck staerken.
+Wenn es Boni gibt, dann eher weich und indirekt:
+
+- mehr Dialoge
+- mehr Reaktionen
+- kleine Komforteffekte
+- kosmetische oder emotionale Freischaltungen
+
+Nicht das Ziel:
+
+- harter Pflichtmodus fuer optimale Produktion
+- staendiges Mikromanagement
+- starke Zahlenboni als Hauptgrund fuer Interaktion
+
 ## Unlock-System
 
 Alle Freischaltungen sollten zentral ueber IDs laufen.
@@ -394,6 +487,21 @@ Der State sollte 2 Dinge trennen:
 Content-Definitionen leben in `data/...`
 Spielerfortschritt lebt im Save-State.
 
+Zusaetzlich sollte das Projekt 4 Verantwortungen sauber trennen:
+
+- `state`: persistente Spielwerte und UI-Zustand
+- `domain logic`: Regeln fuer Aktivitaeten, Unlocks, Produktion und Fortschritt
+- `derived view data`: aufbereitete Daten fuer konkrete Screens oder Komponenten
+- `rendering / ui binding`: DOM-Ausgabe und Event-Anbindung
+
+Ein Screen wie die Aussenwelt sollte deshalb nicht direkt seine gesamte Anzeige aus dem Roh-State zusammenstueckeln, sondern ueber eine abgeleitete Funktion versorgt werden.
+Beispiel:
+
+- `state.js` haelt Rohdaten und gezielte Mutationen
+- `activities.js` berechnet Aktivitaets- und Stationslogik
+- `outside-world.js` rendert nur auf Basis einer `outside summary`
+- `main.js` orchestriert Screen-Wechsel und globale App-Flows
+
 ### Empfohlene Save-Bereiche
 
 ```js
@@ -411,6 +519,53 @@ Spielerfortschritt lebt im Save-State.
 }
 ```
 
+## Refactoring-Leitlinie
+
+Refactoring sollte nicht als spaete Aufraeumarbeit gesehen werden, sondern als Teil der Feature-Arbeit, sobald Grenzen unscharf werden.
+
+### Wann wir refactoren sollten
+
+- wenn dieselbe Information in mehreren UI-Schichten separat aufbereitet wird
+- wenn ein Screen gleichzeitig State liest, Daten ableitet, rendert und Events bindet
+- wenn neue Features vor allem dadurch entstehen, dass `main.js` weiter anwaechst
+- wenn eine Aenderung ohne erkennbaren fachlichen Grund mehrere Dateien mit direktem State-Zugriff anfassen muss
+
+### Ziel eines Refactorings
+
+Ein Refactoring sollte mindestens eine Grenze wieder schaerfen:
+
+- Datenlogik aus Rendering herausziehen
+- abgeleitete Screen-Daten in eine benannte Summary-Funktion verschieben
+- Event-Handling von DOM-Aufbau trennen
+- einen Feature-Bereich in ein eigenes Modul schneiden
+
+### Bevorzugte Reihenfolge
+
+1. doppelte oder widerspruechliche Darstellung entfernen
+2. Datenfluss vereinfachen
+3. Modulgrenzen nachziehen
+4. erst danach feinere kosmetische Aufraeumarbeiten machen
+
+### Keine Big-Bang-Umbauten
+
+Wir bevorzugen kleine, klare Schnitte statt kompletter Neuorganisation in einem Schritt.
+
+Gut:
+
+- `getOutsideSummary()` einfuehren oder schaerfen
+- `renderOutsideScene()` in ein eigenes Modul verschieben
+- direkte State-Zugriffe in UI-Helfern reduzieren
+
+Weniger gut:
+
+- mehrere Systeme gleichzeitig umbenennen und verschieben
+- State-, Render- und Datenmodell parallel neu erfinden
+- Refactoring ohne sichtbare Vereinfachung im Datenfluss
+
+### Entscheidungsregel
+
+Wenn ein neues Feature nur durch mehr Sonderfaelle im bestehenden Render-Code moeglich wird, sollten wir zuerst refactoren und erst dann erweitern.
+
 ## MVP
 
 Fuer eine erste stabile Version reichen diese Systeme:
@@ -427,6 +582,7 @@ Fuer eine erste stabile Version reichen diese Systeme:
 
 - Kostueme / Hute
 - Freundschaften
+- Freizeit-/Spielmodus mit Bewohnern
 - Raumtypen
 - Set-Boni
 - Figuren-Mastery

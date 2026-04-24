@@ -1,7 +1,6 @@
 // js/gacha.js – Zieh-Logik, Pity, Token-System
 // Wird in Schritt 7 implementiert
-import { getState, mutate } from './state.js?v=20260419b';
-import { getAllCharacters, getCharactersByRarity } from './characters.js?v=20260419b';
+import { getAllCharacters, getCharactersByRarity } from './characters.js?v=20260421i';
 
 const RATES = { common: 0.65, rare: 0.27, super_rare: 0.08 };
 const PITY_THRESHOLD = 10;

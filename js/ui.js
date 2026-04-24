@@ -1,5 +1,5 @@
 // js/ui.js – Screen-Transitions, Modals, Resource-Bar
-import { getState } from './state.js';
+import { getState } from './state.js?v=20260421c';
 
 let currentScreen = 'house';
 let onScreenChange = null;
@@ -106,12 +106,20 @@ const RES_IDS = {
   fabric: 'res-fabric',
 };
 
+function formatResourceValue(value) {
+  const whole = Math.round(value);
+  if (Math.abs(value - whole) < 0.0005) return `${whole}`;
+  return value.toFixed(2).replace(/\.?0+$/, '');
+}
+
 export function updateResourceBar() {
   const state = getState();
   if (!state) return;
 
   for (const [key, elId] of Object.entries(RES_IDS)) {
     const el = document.querySelector(`#${elId} .resource-value`);
-    if (el) el.textContent = Math.floor(state.resources[key] || 0);
+    if (!el) continue;
+    const value = state.resources[key] || 0;
+    el.textContent = formatResourceValue(value);
   }
 }

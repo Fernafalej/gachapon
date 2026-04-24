@@ -1,15 +1,16 @@
 ﻿// js/main.js – App-Init, Screen-Routing, Gacha + Activity Wiring
-import { initState, getState, mutate, resetState, saveState } from './state.js?v=20260419g';
-import { initUI, switchScreen, setOnScreenChange, getCurrentScreen, updateResourceBar, openModal, closeModal, showConfirm } from './ui.js?v=20260419g';
-import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount, getCharactersByRarity } from './characters.js?v=20260419g';
-import { initRoom, updateRoom, renderRoom, initRoomControls, setOnTileTap, setFurniture, findFurnitureAt, GRID, getSprites, getSpriteScreenPos } from './room.js?v=20260419g';
+import { initState, getState, mutate, resetState, saveState } from './state.js?v=20260421c';
+import { initUI, switchScreen, setOnScreenChange, getCurrentScreen, updateResourceBar, openModal, closeModal, showConfirm } from './ui.js?v=20260421d';
+import { getAllCharacters, getCharacter, getSpeciesDraw, drawCharacter, getTotalCharacterCount, getCharactersByRarity } from './characters.js?v=20260421i';
+import { initRoom, updateRoom, renderRoom, initRoomControls, setOnTileTap, setFurniture, findFurnitureAt, GRID, getSprites, getSpriteScreenPos } from './room.js?v=20260422a';
 import { draw, freeRollDraw, processDrawResult, TOKEN_TABLES } from './gacha.js?v=20260419g';
 import {
   applyOfflineProgress, checkCompletions, getAllActivityDefs, getActivityDef,
   startActivity, removeActivity, getBusyWorkers, calcDuration, canAfford,
-  getRemainingTime, getProgress, formatTime,
-  applyTick, getOutputRate, getTotalProductionRates, formatRate, startFurnitureBuild, RESEARCH_POINTS_PER_RUN
-} from './activities.js?v=20260419g';
+  getRemainingTime, getProgress, formatTime, formatRate,
+  applyTick, getOutputRate, getTotalProductionRates, startFurnitureBuild, RESEARCH_POINTS_PER_RUN
+} from './activities.js?v=20260421k';
+import { getOwnedWorkers, getWorkerAssignment, getWorkerDisplayName, normalizeStateWorkers, shouldWorkerSpendIdleTimeOutside } from './workers.js?v=20260422a';
 import { allFurniture } from '../data/furniture/index.js?v=20260419g';
 import {
   getAllResearchDefs,
@@ -22,6 +23,7 @@ import {
   sfxRevealCommon, sfxRevealRare, sfxRevealSuperRare,
   sfxNewChar, sfxLevelUp, sfxTap
 } from './sfx.js?v=20260419g';
+import { OUTSIDE_ACTIVITY_IDS, getOutsideSummary, renderOutsideScene, stopOutsideAnimation } from './outside-world.js?v=20260422a';
 
 // ---- Möbel-Lookup ----
 const furnitureMap = {};
@@ -31,62 +33,11 @@ const RES_ICONS = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
 // ---- Room Management ----
 let currentRoomIndex = 0;
 let placingFurnitureMode = false;
-let outsideAnimId = null;
-const OUTSIDE_ACTIVITY_IDS = ['gather_wood', 'gather_stone', 'farm_food'];
-const OUTSIDE_STATION_CONFIG = {
-  gather_wood: {
-    id: 'bamboo-grove',
-    icon: '🎋',
-    title: 'Bambushain',
-    hint: 'Holzproduktion läuft draußen zwischen Bambus und Werkzeugkisten.',
-    sceneX: 20,
-    sceneY: 31,
-    accent: 'grove',
-    slots: [
-      { x: 18, y: 54 },
-      { x: 28, y: 58 },
-      { x: 24, y: 44 },
-    ],
-  },
-  gather_stone: {
-    id: 'stone-yard',
-    icon: '🪨',
-    title: 'Steinplatz',
-    hint: 'Ein robuster Außen-Spot für Stein und spätere Aufwertungen.',
-    sceneX: 72,
-    sceneY: 36,
-    accent: 'stone',
-    slots: [
-      { x: 68, y: 58 },
-      { x: 79, y: 54 },
-      { x: 74, y: 45 },
-    ],
-  },
-  farm_food: {
-    id: 'garden-bed',
-    icon: '🌱',
-    title: 'Beet',
-    hint: 'Nahrung wächst jetzt sichtbar draußen im Gartenbereich.',
-    sceneX: 48,
-    sceneY: 71,
-    accent: 'garden',
-    slots: [
-      { x: 42, y: 82 },
-      { x: 52, y: 86 },
-      { x: 59, y: 79 },
-    ],
-  },
-};
-const OUTSIDE_IDLE_SLOTS = [
-  { x: 10, y: 74 },
-  { x: 24, y: 87 },
-  { x: 50, y: 89 },
-  { x: 76, y: 79 },
-  { x: 90, y: 71 },
-];
 
 // ---- App Start ----
 const state = initState();
+normalizeStateWorkers(state);
+consolidateActivityWorkplaces(state);
 
 // Offline-Progress anwenden
 const offlineCompletions = applyOfflineProgress(state);
@@ -99,6 +50,7 @@ updateResourceBar();
 updateResearchUI();
 renderAlphaPanel();
 renderHouseView();
+updateProductionRates();
 
 // ---- Canvas-Setup ----
 const canvas = document.getElementById('room-canvas');
@@ -107,6 +59,10 @@ let animationId = null;
 let layoutReady = false;
 const debugPanel = document.getElementById('debug-panel');
 const DEBUG_MODE = new URLSearchParams(window.location.search).has('debug');
+const LIVE_RESOURCE_TICK_MS = 200;
+const LIVE_RESOURCE_REFRESH_MS = 1000;
+let lastProductionTickAt = performance.now();
+let hasUnsavedLiveProduction = false;
 
 function setDebugPanel(lines, isError = false) {
   if (!debugPanel) return;
@@ -218,10 +174,9 @@ function getResearchPoints(state = getState()) {
 
 function getAvailableBuilders(state = getState()) {
   const busy = getBusyWorkers(state);
-  return Object.keys(state.collection || {})
-    .map((id) => getCharacter(id))
-    .filter(Boolean)
-    .filter((char) => !busy.has(char.id))
+  return getOwnedWorkers(state)
+    .filter((worker) => !busy.has(worker.id))
+    .map((worker) => ({ ...worker.char, id: worker.id, name: worker.displayName }))
     .sort((a, b) => {
       const aCraft = a.poses?.includes('craft') ? 1 : 0;
       const bCraft = b.poses?.includes('craft') ? 1 : 0;
@@ -256,7 +211,12 @@ function getRecipeResearchDef(furnitureId) {
 
 function updateResearchUI() {
   const countEl = document.getElementById('research-point-count');
-  if (countEl) countEl.textContent = getResearchPoints();
+  if (countEl) {
+    countEl.textContent = '';
+    countEl.classList.add('hidden');
+    countEl.setAttribute('aria-hidden', 'true');
+    countEl.title = `${getResearchPoints()} Forschungspunkte`;
+  }
 }
 
 function getDemoPlacementsForRoom0() {
@@ -279,24 +239,112 @@ function seedDemoFurniture() {
   return;
 }
 
+function isOutsideActivity(activityId) {
+  return OUTSIDE_ACTIVITY_IDS.includes(activityId);
+}
+
+function getInsideResidents(state = getState()) {
+  return getOwnedWorkers(state)
+    .map((worker) => {
+      const assignment = getWorkerAssignment(state, worker.id);
+      const activityId = assignment?.activity?.id || null;
+      if (activityId && isOutsideActivity(activityId)) return null;
+      if (!activityId && shouldWorkerSpendIdleTimeOutside(worker.id)) return null;
+
+      const activityDef = activityId ? getActivityDef(activityId) : null;
+      return {
+        ...worker.renderChar,
+        roomPose: activityDef?.pose || 'idle',
+        roomBusy: !!activityId,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const busyDiff = Number(b.roomBusy) - Number(a.roomBusy);
+      return busyDiff || a.name.localeCompare(b.name, 'de');
+    });
+}
+
+function getActivityElapsedSeconds(activity, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const started = activity?.started || nowSeconds;
+  return Math.max(0, (nowSeconds - started) + (activity?.elapsed || 0));
+}
+
+function consolidateActivityWorkplaces(state) {
+  if (!state || !Array.isArray(state.activities)) return false;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const consolidated = [];
+  const primaryById = new Map();
+  const dirtyActivities = new Set();
+  let changed = false;
+
+  for (const activity of state.activities) {
+    const def = getActivityDef(activity.id);
+    if (!def) {
+      consolidated.push(activity);
+      continue;
+    }
+
+    const maxWorkers = def.workers?.max || 1;
+    const uniqueWorkers = [];
+    for (const workerId of activity.workers || []) {
+      if (uniqueWorkers.includes(workerId)) {
+        changed = true;
+        continue;
+      }
+      if (uniqueWorkers.length >= maxWorkers) {
+        changed = true;
+        continue;
+      }
+      uniqueWorkers.push(workerId);
+    }
+    if (uniqueWorkers.length !== (activity.workers || []).length) {
+      activity.workers = uniqueWorkers;
+      dirtyActivities.add(activity);
+    }
+
+    const primary = primaryById.get(activity.id);
+    if (!primary) {
+      primaryById.set(activity.id, activity);
+      if (activity.workers.length > 0) consolidated.push(activity);
+      else changed = true;
+      continue;
+    }
+
+    for (const workerId of activity.workers || []) {
+      if (primary.workers.includes(workerId)) {
+        changed = true;
+        continue;
+      }
+      if (primary.workers.length >= maxWorkers) {
+        changed = true;
+        continue;
+      }
+      primary.workers.push(workerId);
+      dirtyActivities.add(primary);
+      changed = true;
+    }
+    changed = true;
+  }
+
+  for (const activity of dirtyActivities) {
+    const elapsed = getActivityElapsedSeconds(activity, nowSeconds);
+    recomputeActivityForWorkers(activity, state);
+    activity.started = nowSeconds;
+    activity.elapsed = elapsed;
+  }
+
+  if (!changed) return false;
+  state.activities = consolidated.filter((activity) => (activity.workers || []).length > 0);
+  return true;
+}
+
 // ---- Raum-Setup ----
 function setupRoom(roomIndex) {
   if (roomIndex !== undefined) currentRoomIndex = roomIndex;
   const s = getState();
-  const collected = Object.keys(s.collection);
-  const busySet = getBusyWorkers(s);
-  let chars;
-  if (collected.length > 0) {
-    chars = collected
-      .map(id => getCharacter(id))
-      .filter(c => c && !busySet.has(c.id));
-    // Fallback: if everyone is busy, show them all anyway (working pose handled later)
-    if (chars.length === 0) {
-      chars = collected.map(id => getCharacter(id)).filter(Boolean);
-    }
-  } else {
-    chars = [];
-  }
+  const chars = getInsideResidents(s);
 
   // Always build furniture from state – no separate demo path
   const placements = (s.house.placements || []).filter(p => (p.room || 0) === currentRoomIndex);
@@ -361,7 +409,7 @@ startRender();
 requestAnimationFrame(() => {
   if (resizeCanvas()) {
     setupRoom(currentRoomIndex);
-    renderHouseView();
+    if (getHouseView() !== 'outside') renderHouseView();
     setDebugPanel([
       'room debug',
       `container: ${document.getElementById('screen-house')?.clientWidth || 0}x${document.getElementById('screen-house')?.clientHeight || 0}`,
@@ -432,82 +480,6 @@ function setAlphaPanelDismissed(dismissed) {
   });
 }
 
-function getOutsideSummary(state = getState()) {
-  const activeOutsideJobs = (state.activities || []).filter((activity) => OUTSIDE_ACTIVITY_IDS.includes(activity.id));
-  const totalWorkers = activeOutsideJobs.reduce((sum, activity) => sum + (activity.workers?.length || 0), 0);
-  const stations = Object.entries(OUTSIDE_STATION_CONFIG).map(([activityId, station]) => {
-    const activity = activeOutsideJobs.find((entry) => entry.id === activityId) || null;
-    const def = getActivityDef(activityId);
-    const workers = (activity?.workers || [])
-      .map((workerId, index) => {
-        const char = getCharacter(workerId);
-        if (!char) return null;
-        return {
-          id: workerId,
-          name: char.name,
-          pose: def?.pose || 'hard_work',
-          dir: index % 2,
-        };
-      })
-      .filter(Boolean);
-
-    return {
-      ...station,
-      activityId,
-      activity,
-      workers,
-      status: activity ? `${workers.length} Worker aktiv` : 'Noch frei',
-      body: activity
-        ? `${def?.name || 'Produktion'} läuft gerade auf dieser Außenstation.`
-        : station.hint,
-    };
-  });
-
-  const busyWorkerIds = new Set(activeOutsideJobs.flatMap((activity) => activity.workers || []));
-  const idleResidents = Object.keys(state.collection || {})
-    .filter((workerId) => !busyWorkerIds.has(workerId))
-    .slice(0, OUTSIDE_IDLE_SLOTS.length)
-    .map((workerId, index) => {
-      const char = getCharacter(workerId);
-      if (!char) return null;
-      const slot = OUTSIDE_IDLE_SLOTS[index];
-      return {
-        id: workerId,
-        name: char.name,
-        species: char.species,
-        pose: index % 2 === 0 ? 'idle' : 'walk',
-        dir: index % 2,
-        x: slot.x,
-        y: slot.y,
-        status: 'spaziert',
-        type: 'idle',
-      };
-    })
-    .filter(Boolean);
-
-  const activeResidents = stations.flatMap((station) =>
-    station.workers.map((worker, index) => {
-      const slot = station.slots[index % station.slots.length];
-      return {
-        ...worker,
-        x: slot.x,
-        y: slot.y,
-        status: station.title,
-        type: 'active',
-        accent: station.accent,
-        species: getCharacter(worker.id)?.species || 'unknown',
-      };
-    })
-  );
-
-  return {
-    activeJobs: activeOutsideJobs.length,
-    activeWorkers: totalWorkers,
-    stations,
-    residents: [...activeResidents, ...idleResidents],
-  };
-}
-
 function renderHouseViewToggle() {
   const container = document.getElementById('house-view-toggle');
   if (!container) return;
@@ -528,127 +500,6 @@ function renderHouseViewToggle() {
   });
 }
 
-function drawOutsideWorkers(timestamp) {
-  if (getCurrentScreen() !== 'house' || getHouseView() !== 'outside') {
-    outsideAnimId = null;
-    return;
-  }
-
-  document.querySelectorAll('.outside-worker-canvas, .outside-actor-canvas').forEach((canvas) => {
-    const workerId = canvas.dataset.workerId;
-    const char = getCharacter(workerId);
-    if (!char) return;
-    const specDraw = getSpeciesDraw(char.species);
-    const ctx2d = canvas.getContext('2d');
-    if (!specDraw || !ctx2d) return;
-
-    const t = timestamp / 1000;
-    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
-    ctx2d.save();
-    ctx2d.translate(canvas.width / 2, canvas.height - 12);
-    ctx2d.scale(1.55, 1.55);
-    const pose = canvas.dataset.pose || 'hard_work';
-    const dir = parseInt(canvas.dataset.dir || '0', 10) || 0;
-
-    if (pose === 'walk') specDraw.walk(ctx2d, 0, 0, t, dir, char.palette);
-    else if (pose === 'idle') specDraw.idle(ctx2d, 0, 0, t, char.palette);
-    else if (specDraw.poses && specDraw.poses[pose] && char.poses?.includes(pose)) specDraw.poses[pose](ctx2d, 0, 0, t, char.palette);
-    else specDraw.work_default(ctx2d, 0, 0, t, char.palette);
-    ctx2d.restore();
-  });
-
-  outsideAnimId = requestAnimationFrame(drawOutsideWorkers);
-}
-
-function ensureOutsideAnimation() {
-  if (outsideAnimId) cancelAnimationFrame(outsideAnimId);
-  outsideAnimId = null;
-  if (getCurrentScreen() === 'house' && getHouseView() === 'outside') {
-    outsideAnimId = requestAnimationFrame(drawOutsideWorkers);
-  }
-}
-
-function renderOutsideScene() {
-  const outsideScene = document.getElementById('outside-scene');
-  if (!outsideScene) return;
-
-  const outside = getOutsideSummary();
-  outsideScene.innerHTML = `
-    <div class="outside-scroll">
-      <div class="outside-scene-backdrop">
-        <div class="outside-cloud cloud-a"></div>
-        <div class="outside-cloud cloud-b"></div>
-        <div class="outside-cloud cloud-c"></div>
-        <div class="outside-hills"></div>
-        <div class="outside-ground"></div>
-      </div>
-
-      <section class="outside-hero">
-        <div class="outside-header">
-          <div>
-            <div class="outside-title">Außenbereich</div>
-            <div class="outside-copy">Deine Tierchen leben jetzt auch draußen: sie laufen zwischen Bambus, Steinen und Beeten herum und arbeiten direkt in ihrer Umgebung.</div>
-          </div>
-          <button class="gacha-btn secondary outside-open-work" id="btn-open-outside-work">Arbeit öffnen</button>
-        </div>
-
-        <div class="outside-world">
-          ${outside.stations.map((station) => `
-            <button class="outside-zone outside-zone-${station.accent} ${station.activity ? 'is-active' : ''}" style="left:${station.sceneX}%; top:${station.sceneY}%;" data-outside-activity="${station.activityId}">
-              <span class="outside-zone-icon">${station.icon}</span>
-              <span class="outside-zone-label">${station.title}</span>
-            </button>
-          `).join('')}
-
-          <div class="outside-actors-layer">
-            ${outside.residents.map((resident, index) => `
-              <div class="outside-actor outside-actor-${resident.type}" style="left:${resident.x}%; top:${resident.y}%;" data-actor-index="${index}" data-species="${resident.species}">
-                ${resident.type === 'active' ? `<div class="outside-actor-badge">${resident.status}</div>` : ''}
-                <div class="outside-actor-shadow ${resident.species === 'slime' ? 'is-slime' : ''}"></div>
-                <canvas class="outside-actor-canvas" width="72" height="84" data-worker-id="${resident.id}" data-pose="${resident.pose}" data-dir="${resident.dir}" data-species="${resident.species}"></canvas>
-                <div class="outside-actor-name">${resident.name}</div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      </section>
-
-      <div class="outside-station-grid">
-        ${outside.stations.map((station) => `
-          <section class="outside-plot outside-plot-${station.id} ${station.activity ? 'is-active' : ''}">
-            <div class="outside-plot-sign">
-              <span class="outside-plot-icon">${station.icon}</span>
-              <div>
-                <div class="outside-plot-title">${station.title}</div>
-                <div class="outside-plot-status">${station.status}</div>
-              </div>
-            </div>
-            <div class="outside-worker-row">
-              ${station.workers.length > 0 ? station.workers.map((worker) => `
-                <div class="outside-worker">
-                  <canvas class="outside-worker-canvas" width="72" height="84" data-worker-id="${worker.id}" data-pose="${worker.pose}" data-dir="${worker.dir}"></canvas>
-                  <div class="outside-worker-name">${worker.name}</div>
-                </div>
-              `).join('') : '<div class="outside-empty-worker">Frei für neue Worker</div>'}
-            </div>
-            <div class="outside-plot-copy">${station.body}</div>
-            <button class="outside-assign-btn" data-outside-activity="${station.activityId}">Worker zuweisen</button>
-          </section>
-        `).join('')}
-      </div>
-    </div>
-  `;
-
-  const openWorkBtn = document.getElementById('btn-open-outside-work');
-  if (openWorkBtn) openWorkBtn.addEventListener('click', openActivityModal);
-
-  outsideScene.querySelectorAll('[data-outside-activity]').forEach((button) => {
-    button.addEventListener('click', () => openActivityModal());
-  });
-
-  ensureOutsideAnimation();
-}
-
 function renderHouseView() {
   const outsideScene = document.getElementById('outside-scene');
   const canvasEl = document.getElementById('room-canvas');
@@ -661,7 +512,13 @@ function renderHouseView() {
   if (outsideScene) {
     if (view === 'outside') {
       outsideScene.classList.remove('hidden');
-      renderOutsideScene();
+      renderOutsideScene({
+        getHouseView,
+        openActivityModal,
+        openWorkerSelectModal,
+        onWorkerDrop: moveOutsideWorkerToActivity,
+        outsideScene,
+      });
     } else {
       outsideScene.classList.add('hidden');
       outsideScene.innerHTML = '';
@@ -672,10 +529,7 @@ function renderHouseView() {
   if (bubbleLayer) bubbleLayer.classList.toggle('hidden', view !== 'inside');
   if (houseScreen) houseScreen.classList.toggle('outside-active', view === 'outside');
 
-  if (view !== 'outside' && outsideAnimId) {
-    cancelAnimationFrame(outsideAnimId);
-    outsideAnimId = null;
-  }
+  if (view !== 'outside') stopOutsideAnimation();
 
   updateRoomIndicator();
   renderAlphaPanel();
@@ -1102,7 +956,7 @@ function openPendingBuildModal(activity) {
   const progress = Math.round(getProgress(activity) * 100);
   const remaining = formatTime(getRemainingTime(activity));
   const workerNames = (activity.workers || [])
-    .map((id) => getCharacter(id)?.name || id)
+    .map((id) => getWorkerDisplayName(getState(), id))
     .join(', ');
 
   openModal(`
@@ -1730,16 +1584,164 @@ function updateActivityBadge() {
     updateResearchUI();
     updateRoomIndicator();
     renderAlphaPanel();
-    // If a room was built, refresh the room
-    if (completions.some(c => c.type === 'room_built')) {
-      setupRoom(currentRoomIndex);
-    }
+    setupRoom(currentRoomIndex);
     renderHouseView();
     badge.classList.remove('hidden');
     setTimeout(() => badge.classList.add('hidden'), 3000);
   } else {
     badge.classList.add('hidden');
   }
+}
+
+function getScaledActivityOutput(def, state, workerIds) {
+  if (!def?.output) return null;
+
+  let outputMultiplier = 1;
+  for (const id of workerIds) {
+    const char = getCharacter(id);
+    const owned = state.collection?.[id];
+    if (char?.bonus?.type === 'output' && owned && owned.level >= char.bonus.activatesAtLevel) {
+      outputMultiplier += char.bonus.value;
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(def.output).map(([key, value]) => [key, Math.round(value * outputMultiplier)])
+  );
+}
+
+function recomputeActivityForWorkers(activity, state) {
+  const def = getActivityDef(activity.id);
+  if (!def) return;
+  activity.duration = calcDuration(def, activity.workers.length, state, activity.workers);
+  activity.output = getScaledActivityOutput(def, state, activity.workers);
+}
+
+function refundCancelledActivity(state, activity) {
+  if (!activity) return;
+
+  if (activity.unlocks === 'furniture_build' && activity.build?.furniture_id) {
+    const furnitureDef = furnitureMap[activity.build.furniture_id];
+    for (const [key, value] of Object.entries(furnitureDef?.craft?.cost || {})) {
+      state.resources[key] = (state.resources[key] || 0) + value;
+    }
+    return;
+  }
+
+  const def = getActivityDef(activity.id);
+  for (const [key, value] of Object.entries(def?.cost || {})) {
+    state.resources[key] = (state.resources[key] || 0) + value;
+  }
+}
+
+function removeWorkerFromActivityInState(state, { activityIndex, workerId }) {
+  if (activityIndex < 0 || !workerId) return false;
+
+  const activity = state.activities?.[activityIndex];
+  if (!activity || !(activity.workers || []).includes(workerId)) return false;
+
+  activity.workers = activity.workers.filter((id) => id !== workerId);
+  if (activity.workers.length === 0) {
+    refundCancelledActivity(state, activity);
+    removeActivity(state, activityIndex);
+  } else {
+    recomputeActivityForWorkers(activity, state);
+  }
+  return true;
+}
+
+function getActivitySlotState(state, activityId) {
+  const def = getActivityDef(activityId);
+  if (!def) return null;
+  const active = (state.activities || []).find((activity) => activity.id === activityId) || null;
+  const usedSlots = active?.workers?.length || 0;
+  const maxSlots = def.workers?.max || 1;
+  return {
+    def,
+    active,
+    usedSlots,
+    maxSlots,
+    freeSlots: Math.max(0, maxSlots - usedSlots),
+  };
+}
+
+function assignWorkerToActivityInState(state, { workerId, targetActivityId }) {
+  if (!workerId || !targetActivityId) return false;
+
+  const targetDef = getActivityDef(targetActivityId);
+  if (!targetDef || !state.collection?.[workerId]) return false;
+
+  const sourceIndex = (state.activities || []).findIndex((activity) => (activity.workers || []).includes(workerId));
+  const sourceActivity = sourceIndex >= 0 ? state.activities[sourceIndex] : null;
+  if (sourceActivity && sourceActivity.id === targetActivityId) return true;
+
+  const existingTarget = (state.activities || []).find((activity) => activity.id === targetActivityId) || null;
+  if (existingTarget && existingTarget.workers.length >= (targetDef.workers?.max || 1)) return false;
+  if (!existingTarget && !canAfford(targetDef, state)) return false;
+
+  if (!sourceActivity) {
+    if (existingTarget) {
+      existingTarget.workers.push(workerId);
+      recomputeActivityForWorkers(existingTarget, state);
+      return true;
+    }
+    return !!startActivity(state, targetActivityId, [workerId]);
+  }
+
+  if (!removeWorkerFromActivityInState(state, { activityIndex: sourceIndex, workerId })) return false;
+
+  const nextTarget = (state.activities || []).find((activity) => activity.id === targetActivityId) || null;
+  if (nextTarget) {
+    nextTarget.workers.push(workerId);
+    recomputeActivityForWorkers(nextTarget, state);
+    return true;
+  }
+
+  return !!startActivity(state, targetActivityId, [workerId]);
+}
+
+function assignWorkerToActivity({ workerId, targetActivityId }) {
+  let assigned = false;
+
+  mutate((state) => {
+    assigned = assignWorkerToActivityInState(state, { workerId, targetActivityId });
+  });
+
+  if (!assigned) return false;
+
+  updateResourceBar();
+  updateResearchUI();
+  renderAlphaPanel();
+  updateActivityBadge();
+  updateProductionRates();
+  setupRoom(currentRoomIndex);
+  renderHouseView();
+  return true;
+}
+
+function removeWorkerFromActivity({ activityIndex, workerId }) {
+  if (activityIndex < 0 || !workerId) return false;
+
+  let removed = false;
+
+  mutate((state) => {
+    removed = removeWorkerFromActivityInState(state, { activityIndex, workerId });
+  });
+
+  if (!removed) return false;
+
+  updateResourceBar();
+  updateResearchUI();
+  renderAlphaPanel();
+  updateActivityBadge();
+  updateProductionRates();
+  setupRoom(currentRoomIndex);
+  renderHouseView();
+  return true;
+}
+
+function moveOutsideWorkerToActivity({ workerId, targetActivityId }) {
+  return assignWorkerToActivity({ workerId, targetActivityId });
 }
 
 // Periodischer Check alle 5 Sekunden
@@ -1754,6 +1756,7 @@ function startActivityChecker() {
       updateResearchUI();
       updateRoomIndicator();
       renderAlphaPanel();
+      setupRoom(currentRoomIndex);
       renderHouseView();
       updateActivityBadge();
     }
@@ -1762,16 +1765,48 @@ function startActivityChecker() {
 
 startActivityChecker();
 
-// ---- Produktions-Tick (1×/s) ----
-// Ressourcen laufen kontinuierlich, die UI aktualisiert sich ebenfalls sekündlich.
-setInterval(() => {
-  mutate(s => applyTick(s));
+function hasActiveResourceProduction(state) {
+  return (state.activities || []).some((activity) => activity.output && (activity.workers?.length || 0) > 0);
+}
+
+function tickLiveProduction() {
+  const s = getState();
+  if (!s) return;
+
+  const now = performance.now();
+  const dt = Math.max(0, (now - lastProductionTickAt) / 1000);
+  lastProductionTickAt = now;
+
+  if (dt <= 0 || !hasActiveResourceProduction(s)) return;
+
+  applyTick(s, dt);
+  hasUnsavedLiveProduction = true;
   updateResourceBar();
+}
+
+function flushLiveProduction() {
+  if (!hasUnsavedLiveProduction) return;
+  const s = getState();
+  if (!s) return;
+  saveState(s);
+  hasUnsavedLiveProduction = false;
+}
+
+// Ressourcen laufen mit feineren Zeitdeltas, waehrend die schwerere UI nur
+// einmal pro Sekunde neu aufgebaut wird.
+setInterval(tickLiveProduction, LIVE_RESOURCE_TICK_MS);
+
+setInterval(() => {
+  flushLiveProduction();
   updateResearchUI();
   renderAlphaPanel();
-  renderHouseView();
   updateProductionRates();
-}, 1000);
+}, LIVE_RESOURCE_REFRESH_MS);
+
+window.addEventListener('pagehide', flushLiveProduction);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushLiveProduction();
+});
 
 /**
  * Zeigt die aktuelle Produktionsrate (+X/min) neben jedem Ressourcen-Icon.
@@ -1915,11 +1950,24 @@ document.getElementById('btn-open-menu').addEventListener('click', () => {
   openGameMenuModal();
 });
 
+function getActivityDisplayName(activity) {
+  if (!activity) return '';
+  if (activity.unlocks === 'furniture_build') {
+    return `Bau: ${activity.build?.furniture_name || 'Möbel'}`;
+  }
+  return getActivityDef(activity.id)?.name || activity.id;
+}
+
+function getWorkerAssignmentLabel(state, workerId) {
+  const assignment = getWorkerAssignment(state, workerId);
+  if (!assignment?.activity) return 'Frei';
+  return getActivityDisplayName(assignment.activity);
+}
+
 function openActivityModal() {
   const s = getState();
   const defs = getAllActivityDefs();
-  const busy = getBusyWorkers(s);
-  const collected = Object.keys(s.collection);
+  const ownedWorkers = getOwnedWorkers(s);
 
   // Laufende Aktivitäten
   let activeHTML = '';
@@ -1928,45 +1976,50 @@ function openActivityModal() {
     activeHTML += '<div class="activity-list">';
     s.activities.forEach((act, idx) => {
       const def = getActivityDef(act.id);
+      const isPermanent = !!act.output;
       const progress = getProgress(act);
-      const activityName = act.unlocks === 'furniture_build'
-        ? `Bau: ${act.build?.furniture_name || 'Möbel'}`
-        : (def ? def.name : act.id);
-      const workerNames = act.workers.map(id => {
-        const c = getCharacter(id);
-        return c ? c.name : id;
-      }).join(', ');
+      const activityName = getActivityDisplayName(act);
+      const slotsText = `Slots belegt: ${act.workers.length}/${def?.workers?.max || act.workers.length}`;
 
-      // Zimmer-Bau: zeige Countdown. Ressourcen: zeige Rate.
-      let metaRight;
-      if (act.unlocks === 'room_slot') {
-        const remaining = getRemainingTime(act);
-        metaRight = `${formatTime(remaining)} verbleibend`;
-      } else if (act.unlocks === 'research_progress') {
-        const remaining = getRemainingTime(act);
-        metaRight = `${formatTime(remaining)} bis +${RESEARCH_POINTS_PER_RUN} 🔬`;
-      } else if (act.unlocks === 'furniture_build') {
-        const remaining = getRemainingTime(act);
-        const buildName = act.build?.furniture_name || 'Möbelbau';
-        metaRight = `${formatTime(remaining)} bis ${buildName}`;
-      } else {
-        const rateStr = Object.entries(getOutputRate(act)).map(([k, perSec]) => {
-          const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
-          return `${icons[k] || ''}${formatRate(perSec)}`;
-        }).join(' ');
-        metaRight = rateStr || '…';
+      let metaRight = slotsText;
+      if (!isPermanent) {
+        if (act.unlocks === 'room_slot') {
+          metaRight = `${slotsText} · ${formatTime(getRemainingTime(act))} verbleibend`;
+        } else if (act.unlocks === 'research_progress') {
+          metaRight = `${slotsText} · ${formatTime(getRemainingTime(act))} bis Forschung`;
+        } else if (act.unlocks === 'furniture_build') {
+          metaRight = `${slotsText} · ${formatTime(getRemainingTime(act))} bis ${act.build?.furniture_name || 'Möbelbau'}`;
+        }
       }
+
+      const workerChips = `
+        <div class="activity-worker-list">
+          ${act.workers.map((workerId) => `
+            <button
+              class="activity-worker-chip"
+              type="button"
+              data-activity-index="${idx}"
+              data-worker-id="${workerId}"
+              title="${getWorkerDisplayName(s, workerId)} aus Job entfernen"
+            >
+              <span>${getWorkerDisplayName(s, workerId)}</span>
+              <span class="activity-worker-remove">×</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
 
       activeHTML += `
         <div class="activity-item active-activity">
           <div class="activity-name">${activityName}</div>
-          <div class="activity-meta">
-            ${workerNames} · ${metaRight}
-          </div>
-          <div class="activity-progress-bar">
-            <div class="activity-progress-fill" style="width: ${Math.round(progress * 100)}%"></div>
-          </div>
-          <button class="activity-cancel-btn" data-index="${idx}">Abbrechen</button>
+          <div class="activity-meta">${isPermanent ? `${slotsText} · Dauerjob` : metaRight}</div>
+          ${workerChips}
+          ${isPermanent ? '' : `
+            <div class="activity-progress-bar">
+              <div class="activity-progress-fill" style="width: ${Math.round(progress * 100)}%"></div>
+            </div>
+          `}
+          <button class="activity-cancel-btn" data-index="${idx}">${isPermanent ? 'Stoppen' : 'Abbrechen'}</button>
         </div>
       `;
     });
@@ -1976,41 +2029,36 @@ function openActivityModal() {
   // Verfügbare Aktivitäten
   let availableHTML = '<div class="activity-section-title">Neue Tätigkeit starten</div>';
 
-  if (collected.length === 0) {
+  if (ownedWorkers.length === 0) {
     availableHTML += '<div class="activity-empty">Ziehe zuerst Figuren im Gacha, um sie arbeiten zu lassen!</div>';
   } else {
     availableHTML += '<div class="activity-list">';
     for (const def of defs) {
+      const slotState = getActivitySlotState(s, def.id);
       const affordable = canAfford(def, s);
+      const isFull = (slotState?.freeSlots || 0) <= 0;
       const costStr = def.cost
         ? Object.entries(def.cost).map(([k, v]) => {
             const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
             return `${icons[k] || ''} ${v}`;
           }).join(' + ')
         : 'Keine';
-
-      // Zeige Rate statt einmaligen Output (außer bei room_slot)
       const outputStr = def.output
-        ? (() => {
-            // Berechne Rate für Vorschau mit 1 Worker (Basisdauer)
-            const previewActivity = { output: def.output, duration: def.duration_base };
-            return Object.entries(getOutputRate(previewActivity)).map(([k, perSec]) => {
-              const icons = { wood: '🪵', stone: '🪨', food: '🍞', fabric: '🧵' };
-              return `${icons[k] || ''}${formatRate(perSec)}`;
-            }).join(', ');
-          })()
-        : (def.unlocks === 'room_slot' ? '🏠 Neues Zimmer' : def.unlocks === 'research_progress' ? `🔬 +${RESEARCH_POINTS_PER_RUN} Forschung` : '–');
-
-      const durationStr = formatTime(def.duration_base);
+        ? `Ertrag: ${Object.keys(def.output).map((key) => RES_ICONS[key] || key).join(' ')}`
+        : (def.unlocks === 'room_slot' ? 'Schaltet ein neues Zimmer frei' : def.unlocks === 'research_progress' ? 'Bringt Forschung voran' : 'Spezialauftrag');
+      const disabledClass = !affordable || isFull ? 'activity-locked' : '';
 
       availableHTML += `
-        <div class="activity-item ${affordable ? '' : 'activity-locked'}" data-activity-id="${def.id}">
+        <div class="activity-item ${disabledClass}" data-activity-id="${def.id}">
           <div class="activity-name">${def.name}</div>
           <div class="activity-meta">
-            Kosten: ${costStr} · Ertrag: ${outputStr} · ~${durationStr}
+            ${outputStr}${costStr !== 'Keine' ? ` · Kosten: ${costStr}` : ''}
           </div>
-          <div class="activity-meta">Worker: ${def.workers.min}–${def.workers.max}</div>
+          <div class="activity-meta">
+            Slots: ${slotState?.usedSlots || 0}/${slotState?.maxSlots || def.workers.max}${def.output ? ' · Dauerjob' : ` · Dauer: ~${formatTime(def.duration_base)}`}
+          </div>
           ${!affordable ? '<div class="activity-locked-hint">Nicht genug Ressourcen</div>' : ''}
+          ${affordable && isFull ? '<div class="activity-locked-hint">Alle Slots belegt</div>' : ''}
         </div>
       `;
     }
@@ -2035,19 +2083,26 @@ function openActivityModal() {
       const idx = parseInt(btn.dataset.index);
       mutate(s => {
         const act = s.activities[idx];
-        if (act?.unlocks === 'furniture_build' && act.build?.furniture_id) {
-          const furnitureDef = furnitureMap[act.build.furniture_id];
-          for (const [key, value] of Object.entries(furnitureDef?.craft?.cost || {})) {
-            s.resources[key] = (s.resources[key] || 0) + value;
-          }
-        }
+        refundCancelledActivity(s, act);
         removeActivity(s, idx);
       });
       updateResourceBar();
       updateResearchUI();
       renderAlphaPanel();
+      setupRoom(currentRoomIndex);
       renderHouseView();
       openActivityModal(); // Modal neu rendern
+    });
+  });
+
+  document.querySelectorAll('.activity-worker-chip').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const activityIndex = parseInt(button.dataset.activityIndex || '-1', 10);
+      const workerId = button.dataset.workerId;
+      if (!Number.isInteger(activityIndex) || activityIndex < 0 || !workerId) return;
+      if (!removeWorkerFromActivity({ activityIndex, workerId })) return;
+      openActivityModal();
     });
   });
 
@@ -2065,29 +2120,57 @@ function openWorkerSelectModal(activityId) {
   const def = getActivityDef(activityId);
   if (!def) return;
 
-  const busy = getBusyWorkers(s);
-  const collected = Object.keys(s.collection);
-  const available = collected.filter(id => !busy.has(id));
+  const slotState = getActivitySlotState(s, activityId);
+  const currentWorkerIds = new Set(slotState?.active?.workers || []);
+  const freeSlots = slotState?.freeSlots || 0;
+  const minSelect = slotState?.active ? 1 : def.workers.min;
   const selected = new Set();
+  const availableWorkers = getOwnedWorkers(s)
+    .filter((worker) => !currentWorkerIds.has(worker.id))
+    .sort((a, b) => {
+      const aBusy = getWorkerAssignment(s, a.id) ? 1 : 0;
+      const bBusy = getWorkerAssignment(s, b.id) ? 1 : 0;
+      return aBusy - bBusy || a.displayName.localeCompare(b.displayName);
+    });
 
   function renderWorkerModal() {
-    const duration = calcDuration(def, Math.max(1, selected.size), s, [...selected]);
-    const durationStr = formatTime(duration);
+    const previewWorkerIds = [...(slotState?.active?.workers || []), ...selected];
+    const previewCount = Math.max(def.workers.min, previewWorkerIds.length);
+    const duration = calcDuration(def, previewCount, s, previewWorkerIds);
+    const canAssign = selected.size >= minSelect && selected.size <= freeSlots;
+    const currentWorkerNames = (slotState?.active?.workers || []).map((workerId) => getWorkerDisplayName(s, workerId));
+    const selectionInfo = freeSlots <= 0
+      ? `Alle ${slotState?.maxSlots || def.workers.max} Slots sind belegt.`
+      : def.output
+        ? `Freie Slots: ${freeSlots}/${slotState?.maxSlots || def.workers.max} · Waehle bis zu ${freeSlots} Figur${freeSlots === 1 ? '' : 'en'}`
+        : `Freie Slots: ${freeSlots}/${slotState?.maxSlots || def.workers.max} · Dauer mit Auswahl: ~${formatTime(duration)}`;
+    const currentWorkersHTML = `
+      <div class="worker-current-section">
+        <div class="worker-current-label">Aktuell an diesem Arbeitsplatz</div>
+        ${currentWorkerNames.length > 0
+          ? `<div class="activity-worker-list">${currentWorkerNames.map((name) => `<span class="activity-worker-chip worker-current-chip">${name}</span>`).join('')}</div>`
+          : '<div class="worker-current-empty">Noch niemand zugewiesen.</div>'}
+      </div>
+    `;
 
     let workersHTML = '';
-    if (available.length === 0) {
-      workersHTML = '<div class="activity-empty">Alle Figuren sind beschäftigt!</div>';
+    if (freeSlots <= 0) {
+      workersHTML = '<div class="activity-empty">Entferne zuerst jemanden aus diesem Job, um den Platz neu zu vergeben.</div>';
+    } else if (availableWorkers.length === 0) {
+      workersHTML = '<div class="activity-empty">Es gibt gerade keine weitere Figurenart zum Zuweisen.</div>';
     } else {
       workersHTML = '<div class="worker-grid">';
-      for (const id of available) {
-        const char = getCharacter(id);
+      for (const worker of availableWorkers) {
+        const char = worker.char;
         if (!char) continue;
-        const isSelected = selected.has(id);
-        const canSelect = selected.size < def.workers.max || isSelected;
+        const isSelected = selected.has(worker.id);
+        const assignmentLabel = getWorkerAssignmentLabel(s, worker.id);
+        const canSelect = selected.size < freeSlots || isSelected;
         workersHTML += `
-          <div class="worker-card ${isSelected ? 'selected' : ''} ${canSelect ? '' : 'worker-full'}" data-char-id="${id}">
+          <div class="worker-card ${isSelected ? 'selected' : ''} ${canSelect ? '' : 'worker-full'}" data-worker-id="${worker.id}">
             <canvas width="48" height="48" data-species="${char.species}" data-palette='${JSON.stringify(char.palette)}'></canvas>
-            <div class="worker-name">${char.name}</div>
+            <div class="worker-name">${worker.displayName}</div>
+            <div class="worker-status">${assignmentLabel === 'Frei' ? 'Frei' : `Wechselt von ${assignmentLabel}`}</div>
             ${isSelected ? '<div class="worker-check">✓</div>' : ''}
           </div>
         `;
@@ -2100,12 +2183,15 @@ function openWorkerSelectModal(activityId) {
         <span class="modal-title">${def.name}</span>
         <button class="modal-close">✕</button>
       </div>
-      <div class="worker-info">
-        Wähle ${def.workers.min}–${def.workers.max} Figuren · Dauer: ~${durationStr}
-      </div>
+      <div class="worker-info">${selectionInfo}</div>
+      ${currentWorkersHTML}
       ${workersHTML}
-      <button class="worker-start-btn gacha-btn primary" ${selected.size >= def.workers.min ? '' : 'disabled'}>
-        ${selected.size >= def.workers.min ? `Starten (${selected.size} Worker)` : `Mindestens ${def.workers.min} wählen`}
+      <button class="worker-start-btn gacha-btn primary" ${canAssign ? '' : 'disabled'}>
+        ${canAssign
+          ? `${slotState?.active ? 'Umhaengen' : def.output ? 'Zuweisen' : 'Starten'} (${selected.size})`
+          : freeSlots <= 0
+            ? 'Keine freien Slots'
+            : `Mindestens ${minSelect} waehlen`}
       </button>
       <button class="worker-back-btn gacha-btn secondary">Zurück</button>
     `;
@@ -2127,10 +2213,10 @@ function openWorkerSelectModal(activityId) {
     document.querySelectorAll('.worker-card').forEach(card => {
       if (card.classList.contains('worker-full')) return;
       card.addEventListener('click', () => {
-        const id = card.dataset.charId;
+        const id = card.dataset.workerId;
         if (selected.has(id)) {
           selected.delete(id);
-        } else if (selected.size < def.workers.max) {
+        } else if (selected.size < freeSlots) {
           selected.add(id);
         }
         showAndWire();
@@ -2142,17 +2228,25 @@ function openWorkerSelectModal(activityId) {
     if (startBtn && !startBtn.disabled) {
       startBtn.addEventListener('click', () => {
         const workerIds = [...selected];
+        let failed = false;
         mutate(s => {
-          const result = startActivity(s, activityId, workerIds);
-          if (!result) {
-            console.warn('Aktivität konnte nicht gestartet werden');
+          for (const workerId of workerIds) {
+            if (!assignWorkerToActivityInState(s, { workerId, targetActivityId: activityId })) {
+              failed = true;
+              break;
+            }
           }
         });
+        if (failed) {
+          showAndWire();
+          return;
+        }
         closeModal();
         updateResourceBar();
         updateResearchUI();
         updateActivityBadge();
         renderAlphaPanel();
+        updateProductionRates();
         renderHouseView();
         if (activityId === 'research') openResearchModal();
       });
@@ -2166,6 +2260,75 @@ function openWorkerSelectModal(activityId) {
   }
 
   showAndWire();
+}
+
+function openWorkerAssignmentModal(workerId) {
+  const s = getState();
+  const char = getCharacter(workerId);
+  const owned = s.collection?.[workerId];
+  if (!char || !owned) return;
+
+  const assignment = getWorkerAssignment(s, workerId);
+  const currentActivityId = assignment?.activity?.id || null;
+  const currentLabel = getWorkerAssignmentLabel(s, workerId);
+
+  let jobsHTML = '<div class="activity-list">';
+  for (const def of getAllActivityDefs()) {
+    const slotState = getActivitySlotState(s, def.id);
+    const isCurrent = currentActivityId === def.id;
+    const affordable = canAfford(def, s);
+    const isFull = (slotState?.freeSlots || 0) <= 0 && !isCurrent;
+    const disabledClass = isCurrent || !affordable || isFull ? 'activity-locked' : '';
+    const outputStr = def.output
+      ? `Ertrag: ${Object.keys(def.output).map((key) => RES_ICONS[key] || key).join(' ')}`
+      : (def.unlocks === 'room_slot'
+          ? 'Schaltet ein neues Zimmer frei'
+          : def.unlocks === 'research_progress'
+            ? 'Bringt Forschung voran'
+            : 'Spezialauftrag');
+    const costStr = def.cost
+      ? Object.entries(def.cost).map(([key, value]) => `${RES_ICONS[key] || key} ${value}`).join(' + ')
+      : 'Keine';
+
+    jobsHTML += `
+      <div class="activity-item ${disabledClass}" data-worker-activity-id="${def.id}">
+        <div class="activity-name">${def.name}</div>
+        <div class="activity-meta">${outputStr}${costStr !== 'Keine' ? ` · Kosten: ${costStr}` : ''}</div>
+        <div class="activity-meta">
+          Slots: ${slotState?.usedSlots || 0}/${slotState?.maxSlots || def.workers.max}${def.output ? ' · Dauerjob' : ` · Dauer: ~${formatTime(def.duration_base)}`}
+        </div>
+        ${isCurrent ? '<div class="activity-locked-hint">Aktuell zugewiesen</div>' : ''}
+        ${!isCurrent && !affordable ? '<div class="activity-locked-hint">Nicht genug Ressourcen</div>' : ''}
+        ${!isCurrent && affordable && isFull ? '<div class="activity-locked-hint">Alle Slots belegt</div>' : ''}
+      </div>
+    `;
+  }
+  jobsHTML += '</div>';
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">${char.name}</span>
+      <button class="modal-close">✕</button>
+    </div>
+    <div class="worker-info">Aktuelle Taetigkeit: ${currentLabel}</div>
+    ${jobsHTML}
+    <button class="worker-start-btn gacha-btn primary">Zurueck zur Figur</button>
+    ${assignment ? '<button class="worker-remove-btn gacha-btn secondary">Aus Job entfernen</button>' : ''}
+  `);
+
+  document.querySelector('.worker-start-btn')?.addEventListener('click', () => showCharDetail(char, getState().collection[workerId]));
+  document.querySelector('.worker-remove-btn')?.addEventListener('click', () => {
+    if (!removeWorkerFromActivity({ activityIndex: assignment.activityIndex, workerId })) return;
+    showCharDetail(char, getState().collection[workerId]);
+  });
+
+  document.querySelectorAll('.activity-item[data-worker-activity-id]').forEach((item) => {
+    if (item.classList.contains('activity-locked')) return;
+    item.addEventListener('click', () => {
+      if (!assignWorkerToActivity({ workerId, targetActivityId: item.dataset.workerActivityId })) return;
+      showCharDetail(char, getState().collection[workerId]);
+    });
+  });
 }
 
 // ========================================
@@ -2246,6 +2409,9 @@ document.querySelectorAll('.species-btn').forEach(btn => {
 });
 
 function showCharDetail(char, owned) {
+  const state = getState();
+  const assignment = getWorkerAssignment(state, char.id);
+  const assignmentLabel = getWorkerAssignmentLabel(state, char.id);
   const rarityNames = { common: 'Common', rare: 'Rare', super_rare: 'Super Rare' };
   const shardCost = owned.level < 5 ? owned.level : '–';
   const shardProgress = owned.level < 5 ? Math.min(1, owned.shards / owned.level) : 1;
@@ -2298,6 +2464,14 @@ function showCharDetail(char, owned) {
           <span>Bonus</span>
           <span>${bonusText}</span>
         </div>
+        <div class="detail-row">
+          <span>Taetigkeit</span>
+          <span>${assignmentLabel}</span>
+        </div>
+      </div>
+      <div class="char-detail-actions">
+        <button class="gacha-btn primary char-assign-btn">${assignment ? 'Taetigkeit wechseln' : 'Taetigkeit zuweisen'}</button>
+        ${assignment ? '<button class="gacha-btn secondary char-remove-job-btn">Aus Job entfernen</button>' : ''}
       </div>
     </div>
   `;
@@ -2345,6 +2519,16 @@ function showCharDetail(char, owned) {
       btn.classList.add('active');
       currentPose = btn.dataset.pose;
     });
+  });
+
+  document.querySelector('.char-assign-btn')?.addEventListener('click', () => {
+    openWorkerAssignmentModal(char.id);
+  });
+
+  document.querySelector('.char-remove-job-btn')?.addEventListener('click', () => {
+    if (!assignment) return;
+    if (!removeWorkerFromActivity({ activityIndex: assignment.activityIndex, workerId: char.id })) return;
+    showCharDetail(char, getState().collection[char.id]);
   });
 }
 

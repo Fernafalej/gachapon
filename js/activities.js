@@ -1,6 +1,6 @@
 // js/activities.js – Tätigkeits-Loop, Offline-Progress, Worker-Zuweisung
-import { allActivities } from '../data/activities/index.js?v=20260419b';
-import { getCharacter } from './characters.js?v=20260419b';
+import { allActivities } from '../data/activities/index.js?v=20260421k';
+import { getCharacter } from './characters.js?v=20260421i';
 
 const activityMap = {};
 for (const a of allActivities) activityMap[a.id] = a;
@@ -192,14 +192,8 @@ export function applyTick(state, dt = 1) {
     if (def?.type === 'countdown') continue; // countdown-Jobs ticken nicht
     if (!activity.output || activity.workers.length === 0) continue;
     const rate = getOutputRate(activity);
-    if (!activity._acc) activity._acc = {};
     for (const [key, perSec] of Object.entries(rate)) {
-      activity._acc[key] = (activity._acc[key] || 0) + perSec * dt;
-      const whole = Math.floor(activity._acc[key]);
-      if (whole >= 1) {
-        state.resources[key] = (state.resources[key] || 0) + whole;
-        activity._acc[key] -= whole;
-      }
+      state.resources[key] = (state.resources[key] || 0) + perSec * dt;
     }
   }
 }
@@ -226,10 +220,10 @@ export function applyOfflineProgress(state) {
       // Permanent-Job: rate × delta
       const earned = {};
       for (const [key, perSec] of Object.entries(getOutputRate(activity))) {
-        const amount = Math.floor(perSec * delta);
+        const amount = perSec * delta;
         if (amount > 0) {
           state.resources[key] = (state.resources[key] || 0) + amount;
-          earned[key] = amount;
+          earned[key] = Math.round(amount * 10) / 10;
         }
       }
       if (Object.keys(earned).length > 0)

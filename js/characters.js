@@ -14,6 +14,8 @@ const speciesDrawMap = {
   dragon: dragonDraw,
 };
 
+export const WORKER_INSTANCE_SEPARATOR = '__worker__';
+
 // Charakter-Map für schnellen Zugriff
 const characterMap = new Map();
 for (const char of allCharacters) {
@@ -27,11 +29,30 @@ export function getAllCharacters() {
   return allCharacters;
 }
 
+export function getBaseCharacterId(id) {
+  if (typeof id !== 'string') return id;
+  const separatorIndex = id.indexOf(WORKER_INSTANCE_SEPARATOR);
+  return separatorIndex >= 0 ? id.slice(0, separatorIndex) : id;
+}
+
+export function createWorkerId(characterId, copyIndex = 1) {
+  if (!characterId) return characterId;
+  return copyIndex <= 1 ? characterId : `${characterId}${WORKER_INSTANCE_SEPARATOR}${copyIndex}`;
+}
+
+export function getWorkerCopyIndex(id) {
+  if (typeof id !== 'string') return 1;
+  const baseId = getBaseCharacterId(id);
+  if (baseId === id) return 1;
+  const copyIndex = parseInt(id.slice(baseId.length + WORKER_INSTANCE_SEPARATOR.length), 10);
+  return Number.isFinite(copyIndex) && copyIndex > 1 ? copyIndex : 1;
+}
+
 /**
  * Figur per ID holen
  */
 export function getCharacter(id) {
-  return characterMap.get(id) || null;
+  return characterMap.get(getBaseCharacterId(id)) || null;
 }
 
 /**
